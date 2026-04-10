@@ -4,6 +4,11 @@ import { ConfigModule } from '@nestjs/config';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { StarsModule } from './modules/stars/stars.module';
+import { SearchModule } from './modules/search/search.module';
+import { SeedModule } from './modules/seed/seed.module';
+import { ProductsModule } from './modules/products/products.module';
 
 @Module({
   imports: [
@@ -19,6 +24,11 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
     UsersModule,
     AuthModule,
     AppConfigModule,
+    DashboardModule,
+    StarsModule,
+    SearchModule,
+    SeedModule,
+    ProductsModule,
   ],
 })
 export class AppModule { }

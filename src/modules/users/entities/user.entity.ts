@@ -20,6 +20,9 @@ export class User {
   @Column({ nullable: true })
   photoUrl: string;
 
+  @Column({ default: 0 })
+  stars: number;
+
   @CreateDateColumn()
   createdAt: Date;
 
