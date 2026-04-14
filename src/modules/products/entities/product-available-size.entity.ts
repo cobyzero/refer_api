@@ -14,7 +14,7 @@ export class ProductAvailableSize {
   sizeId: string;
 
   @Column('float', { nullable: true })
-  price: number; // Price can vary by size
+  price: number;
 
   @ManyToOne(() => Product, (product) => product.sizeOptions)
   @JoinColumn({ name: 'productId' })

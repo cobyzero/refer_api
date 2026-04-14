@@ -9,6 +9,7 @@ import { StarsModule } from './modules/stars/stars.module';
 import { SearchModule } from './modules/search/search.module';
 import { SeedModule } from './modules/seed/seed.module';
 import { ProductsModule } from './modules/products/products.module';
+import { CartModule } from './modules/cart/cart.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ProductsModule } from './modules/products/products.module';
     SearchModule,
     SeedModule,
     ProductsModule,
+    CartModule,
   ],
 })
 export class AppModule { }

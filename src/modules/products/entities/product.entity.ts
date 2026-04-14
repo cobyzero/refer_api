@@ -1,6 +1,8 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { ProductAvailableSize } from './product-available-size.entity';
 import { ProductCategory } from './product-category.entity';
+import { ProductType } from './product-type.entity';
+import { ProductEnhancement } from './product-enhancement.entity';
 
 @Entity('products')
 export class Product {
@@ -43,5 +45,11 @@ export class Product {
 
   @OneToMany(() => ProductAvailableSize, (sizeOption) => sizeOption.product)
   sizeOptions: ProductAvailableSize[];
+
+  @OneToMany(() => ProductType, (option) => option.product)
+  options: ProductType[];
+
+  @OneToMany(() => ProductEnhancement, (enhancement) => enhancement.product)
+  enhancements: ProductEnhancement[];
 }
 

@@ -9,6 +9,8 @@ import { StarTransaction } from '../stars/entities/star-transaction.entity';
 import { ProductSize } from '../products/entities/product-size.entity';
 import { ProductAvailableSize } from '../products/entities/product-available-size.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
+import { ProductType } from '../products/entities/product-type.entity';
+import { ProductEnhancement } from '../products/entities/product-enhancement.entity';
 
 @Module({
   imports: [
@@ -20,7 +22,9 @@ import { ProductCategory } from '../products/entities/product-category.entity';
       StarTransaction,
       ProductSize,
       ProductAvailableSize,
-      ProductCategory
+      ProductCategory,
+      ProductType,
+      ProductEnhancement
     ]),
   ],
   providers: [SeedService],
