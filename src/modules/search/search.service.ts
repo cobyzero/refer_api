@@ -2,12 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
+import { ProductCategory } from '../products/entities/product-category.entity';
 
 @Injectable()
 export class SearchService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(ProductCategory)
+    private readonly categoryRepository: Repository<ProductCategory>,
   ) {}
 
   private mapProduct(product: Product | null) {
@@ -38,15 +41,22 @@ export class SearchService {
     };
   }
 
-  async searchProducts(query?: string, categoryName?: string) {
+  async searchProducts(query?: string, categoryIdOrName?: string) {
     const where: any = { isAvailable: true };
 
     if (query) {
       where.name = Like(`%${query}%`);
     }
 
-    if (categoryName && categoryName !== 'All') {
-      where.category = { name: categoryName };
+    if (categoryIdOrName && categoryIdOrName !== 'All') {
+      // Check if it looks like a UUID (categoryId) or just a name
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(categoryIdOrName);
+      
+      if (isUuid) {
+        where.categoryId = categoryIdOrName;
+      } else {
+        where.category = { name: categoryIdOrName };
+      }
     }
 
     const products = await this.productRepository.find({
@@ -59,11 +69,6 @@ export class SearchService {
   }
 
   async getCategories() {
-    const products = await this.productRepository.find({ 
-      relations: ['category'],
-      select: ['category'] 
-    });
-    const categories = Array.from(new Set(products.map(p => p.category?.name).filter(Boolean)));
-    return ['All', ...categories];
+    return this.categoryRepository.find();
   }
 }

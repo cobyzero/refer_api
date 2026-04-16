@@ -58,6 +58,7 @@ export class CartService {
         quantity: item.quantity,
         unitPrice: unitPrice,
         totalPrice: unitPrice * item.quantity,
+        starsReward: (item.product.starsReward || 0) * item.quantity,
       };
     });
 

@@ -11,6 +11,8 @@ import { ProductAvailableSize } from '../products/entities/product-available-siz
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductType } from '../products/entities/product-type.entity';
 import { ProductEnhancement } from '../products/entities/product-enhancement.entity';
+import { Location } from '../locations/entities/location.entity';
+import { Role } from '../users/entities/role.entity';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -28,6 +30,8 @@ export class SeedService implements OnModuleInit {
     @InjectRepository(ProductCategory) private readonly categoryRepo: Repository<ProductCategory>,
     @InjectRepository(ProductType) private readonly typeRepo: Repository<ProductType>,
     @InjectRepository(ProductEnhancement) private readonly enhancementRepo: Repository<ProductEnhancement>,
+    @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
+    @InjectRepository(Location) private readonly locationRepo: Repository<Location>,
   ) { }
 
   async onModuleInit() {
@@ -40,6 +44,7 @@ export class SeedService implements OnModuleInit {
     await this.seedOptions();
     await this.seedEnhancements();
     await this.seedRewards();
+    await this.seedLocations();
     this.logger.log('Seeding completed successfully');
   }
 
@@ -54,47 +59,86 @@ export class SeedService implements OnModuleInit {
     await this.rewardRepo.clear();
     await this.productRepo.clear();
     await this.categoryRepo.clear();
+    await this.locationRepo.clear();
+    await this.userRepo.query('DELETE FROM users_roles'); // Clear join table first
     await this.userRepo.clear();
+    await this.roleRepo.clear();
   }
 
   private async seedUsers() {
-    this.logger.log('Seeding users...');
+    this.logger.log('Seeding roles and users...');
+
+    // Seed Roles
+    const adminRole = await this.roleRepo.save({ name: 'ADMIN' });
+    const userRole = await this.roleRepo.save({ name: 'USER' });
+
     const hashedPassword = await bcrypt.hash('admin', 10);
+
+    // Seed Admin User
     await this.userRepo.save({
       id: '00000000-0000-0000-0000-000000000001',
-      name: 'Elias Rodriguez',
+      name: 'Sebastian Abal',
       email: 'admin@admin.com',
       password: hashedPassword,
       stars: 85,
-      photoUrl: 'https://i.pravatar.cc/150?u=elias',
+      photoUrl: 'https://i.pravatar.cc/150?u=sebastian',
       keepUpdated: true,
+      roles: [adminRole]
+    });
+
+    // Seed a regular User
+    await this.userRepo.save({
+      id: '00000000-0000-0000-0000-000000000002',
+      name: 'Regular User',
+      email: 'user@user.com',
+      password: hashedPassword,
+      stars: 10,
+      photoUrl: 'https://i.pravatar.cc/150?u=regular',
+      keepUpdated: false,
+      roles: [userRole]
     });
   }
 
   private async seedCategories() {
     this.logger.log('Seeding categories...');
     const categories = [
-      { name: 'Café', iconUrl: 'https://cdn-icons-png.flaticon.com/512/924/924514.png' },
-      { name: 'Té', iconUrl: 'https://cdn-icons-png.flaticon.com/512/3504/3504827.png' },
-      { name: 'Panadería', iconUrl: 'https://cdn-icons-png.flaticon.com/512/3014/3014534.png' },
-      { name: 'Mercancía', iconUrl: 'https://cdn-icons-png.flaticon.com/512/3081/3081559.png' },
+      {
+        name: 'Café',
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/924/924514.png',
+        imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=800'
+      },
+      {
+        name: 'Té',
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3504/3504827.png',
+        imageUrl: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&q=80&w=800'
+      },
+      {
+        name: 'Panadería',
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3014/3014534.png',
+        imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=800'
+      },
+      {
+        name: 'Mercancía',
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3081/3081559.png',
+        imageUrl: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&q=80&w=800'
+      },
     ];
     return this.categoryRepo.save(categories);
   }
 
   private async seedProducts(categories: ProductCategory[]) {
     this.logger.log('Seeding products...');
-    const getCat = (name: string) => categories.find(c => c.name.toLowerCase() === name.toLowerCase())?.id;
+    const getCat = (name: string) => categories.find(c => c.name.toLowerCase() === name.toLowerCase());
     const products = [
-      { name: 'Cascara Cold Brew', description: 'Cherry-steeped morning bliss', categoryId: getCat('Café'), price: 6.50, rating: 4.9, numReviews: 124, starsReward: 15, imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Spiced Autumn Latte', description: 'Warming seasonal notes', categoryId: getCat('Café'), price: 5.75, rating: 4.8, numReviews: 89, starsReward: 12, imageUrl: 'https://images.unsplash.com/photo-1570968915860-54d5c301fa9f?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Honey Almond Frappuccino', description: 'Sweet and nutty refreshment', categoryId: getCat('Café'), price: 6.25, rating: 4.7, numReviews: 45, starsReward: 14, imageUrl: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Matcha Mint Fizz', description: 'Sparkling green tea energy', categoryId: getCat('Té'), price: 5.50, rating: 4.6, numReviews: 32, starsReward: 10, imageUrl: 'https://images.unsplash.com/photo-1515823064-d6e0c04616a7?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Vanilla Sweet Cream', description: 'Smooth and creamy classic', categoryId: getCat('Café'), price: 5.25, rating: 4.7, numReviews: 210, starsReward: 10, imageUrl: 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Caramel Macchiato', description: 'Espresso with silky caramel', categoryId: getCat('Café'), price: 5.50, rating: 4.8, numReviews: 180, starsReward: 12, imageUrl: 'https://images.unsplash.com/photo-1485808191679-5f86510681a2?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Butter Croissant', description: 'Flaky, buttery French specialty', categoryId: getCat('Panadería'), price: 3.50, rating: 4.9, numReviews: 340, starsReward: 8, imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Blueberry Muffin', description: 'Bursting with fresh berries', categoryId: getCat('Panadería'), price: 3.25, rating: 4.6, numReviews: 156, starsReward: 8, imageUrl: 'https://images.unsplash.com/photo-1607958996333-41aef7caefaa?auto=format&fit=crop&w=400&h=400' },
-      { name: 'Chocolate Chip Cookie', description: 'Warm with gooey chocolate', categoryId: getCat('Panadería'), price: 2.75, rating: 4.9, numReviews: 245, starsReward: 5, imageUrl: 'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=400&h=400' }
+      { name: 'Cascara Cold Brew', description: 'Cherry-steeped morning bliss', category: getCat('Café'), price: 6.50, rating: 4.9, numReviews: 124, starsReward: 15, imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Spiced Autumn Latte', description: 'Warming seasonal notes', category: getCat('Café'), price: 5.75, rating: 4.8, numReviews: 89, starsReward: 12, imageUrl: 'https://images.unsplash.com/photo-1570968915860-54d5c301fa9f?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Honey Almond Frappuccino', description: 'Sweet and nutty refreshment', category: getCat('Café'), price: 6.25, rating: 4.7, numReviews: 45, starsReward: 14, imageUrl: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Matcha Mint Fizz', description: 'Sparkling green tea energy', category: getCat('Té'), price: 5.50, rating: 4.6, numReviews: 32, starsReward: 10, imageUrl: 'https://images.unsplash.com/photo-1515823064-d6e0c04616a7?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Vanilla Sweet Cream', description: 'Smooth and creamy classic', category: getCat('Café'), price: 5.25, rating: 4.7, numReviews: 210, starsReward: 10, imageUrl: 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Caramel Macchiato', description: 'Espresso with silky caramel', category: getCat('Café'), price: 5.50, rating: 4.8, numReviews: 180, starsReward: 12, imageUrl: 'https://images.unsplash.com/photo-1485808191679-5f86510681a2?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Butter Croissant', description: 'Flaky, buttery French specialty', category: getCat('Panadería'), price: 3.50, rating: 4.9, numReviews: 340, starsReward: 8, imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Blueberry Muffin', description: 'Bursting with fresh berries', category: getCat('Panadería'), price: 3.25, rating: 4.6, numReviews: 156, starsReward: 8, imageUrl: 'https://images.unsplash.com/photo-1607958996333-41aef7caefaa?auto=format&fit=crop&w=400&h=400' },
+      { name: 'Chocolate Chip Cookie', description: 'Warm with gooey chocolate', category: getCat('Panadería'), price: 2.75, rating: 4.9, numReviews: 245, starsReward: 5, imageUrl: 'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?auto=format&fit=crop&w=400&h=400' }
     ];
     const savedProducts = await this.productRepo.save(products);
     const seasonalNames = ['Spiced Autumn Latte', 'Honey Almond Frappuccino', 'Matcha Mint Fizz'];
@@ -106,9 +150,41 @@ export class SeedService implements OnModuleInit {
   private async seedRewards() {
     this.logger.log('Seeding rewards...');
     const rewards = [
-      { title: 'Butter Croissant', description: 'Redeem for any fresh bakery item', starsRequired: 50, imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&h=400' },
-      { title: 'Any Handcrafted Drink', description: 'Includes seasonal and limited editions', starsRequired: 150, imageUrl: 'https://images.unsplash.com/photo-1541167760496-162955ed8a9f?auto=format&fit=crop&w=400&h=400' },
-      { title: 'Bag of Whole Bean Coffee', description: '250g of our signature roast', starsRequired: 400, imageUrl: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=400&h=400' }
+      {
+        title: 'Extra Espresso Shot',
+        description: 'Perfect for that extra kick',
+        starsRequired: 25,
+        icon: 'add_circle_outline',
+        imageUrl: 'https://images.unsplash.com/photo-1510707577719-ae7c14805e3a?auto=format&fit=crop&w=400&h=400'
+      },
+      {
+        title: 'Fresh Bakery Item',
+        description: 'Any croissant, muffin or cookie',
+        starsRequired: 50,
+        icon: 'bakery_dining_rounded',
+        imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&h=400'
+      },
+      {
+        title: 'Handcrafted Drink',
+        description: 'Any coffee or tea prepared by our baristas',
+        starsRequired: 100,
+        icon: 'local_cafe_rounded',
+        imageUrl: 'https://images.unsplash.com/photo-1541167760496-162955ed8a9f?auto=format&fit=crop&w=400&h=400'
+      },
+      {
+        title: 'Lunch Sandwich',
+        description: 'Try our gourmet avocado toast or panini',
+        starsRequired: 200,
+        icon: 'lunch_dining_rounded',
+        imageUrl: 'https://images.unsplash.com/photo-1538087833039-58ae2ff355d2?auto=format&fit=crop&w=400&h=400'
+      },
+      {
+        title: 'Bag of Whole Bean Coffee',
+        description: '250g of our signature roast',
+        starsRequired: 400,
+        icon: 'shopping_bag_rounded',
+        imageUrl: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=400&h=400'
+      }
     ];
     await this.rewardRepo.save(rewards);
   }
@@ -162,5 +238,39 @@ export class SeedService implements OnModuleInit {
         await this.enhancementRepo.save({ name: 'Caramel Drizzle', price: 0.50, productId: prod.id });
       }
     }
+  }
+
+  private async seedLocations() {
+    this.logger.log('Seeding locations...');
+    const locations = [
+      {
+        name: 'Downtown Studio',
+        address: '1248 Editorial Way, Suite 4',
+        city: 'Portland',
+        state: 'OR',
+        zipCode: '97204',
+        latitude: 45.523062,
+        longitude: -122.676482,
+      },
+      {
+        name: 'Pearl District Roastery',
+        address: '815 NW 13th Ave',
+        city: 'Portland',
+        state: 'OR',
+        zipCode: '97209',
+        latitude: 45.5283,
+        longitude: -122.6841,
+      },
+      {
+        name: 'Eastside Garden',
+        address: '2239 SE Hawthorne Blvd',
+        city: 'Portland',
+        state: 'OR',
+        zipCode: '97214',
+        latitude: 45.5126,
+        longitude: -122.6428,
+      },
+    ];
+    await this.locationRepo.save(locations);
   }
 }

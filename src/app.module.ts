@@ -10,6 +10,9 @@ import { SearchModule } from './modules/search/search.module';
 import { SeedModule } from './modules/seed/seed.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CartModule } from './modules/cart/cart.module';
+import { LocationsModule } from './modules/locations/locations.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -31,6 +34,9 @@ import { CartModule } from './modules/cart/cart.module';
     SeedModule,
     ProductsModule,
     CartModule,
+    LocationsModule,
+    PaymentsModule,
+    OrdersModule,
   ],
 })
 export class AppModule { }

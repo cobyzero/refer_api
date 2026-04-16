@@ -23,13 +23,14 @@ export class AuthService {
       password: hashedPassword,
     });
 
-    const token = this.generateToken(user.id, user.email);
+    const token = this.generateToken(user.id, user.email, []); // New users have no roles by default
     return {
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
         keepUpdated: user.keepUpdated,
+        roles: [],
       },
       ...token,
     };
@@ -46,7 +47,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const token = this.generateToken(user.id, user.email);
+    const roles = user.roles?.map(r => r.name) || [];
+    const token = this.generateToken(user.id, user.email, roles);
     return {
       user: {
         id: user.id,
@@ -54,13 +56,15 @@ export class AuthService {
         email: user.email,
         keepUpdated: user.keepUpdated,
         photoUrl: user.photoUrl,
+        stars: user.stars,
+        roles: roles,
       },
       ...token,
     };
   }
 
-  private generateToken(userId: string, email: string) {
-    const payload = { sub: userId, email };
+  private generateToken(userId: string, email: string, roles: string[]) {
+    const payload = { sub: userId, email, roles };
     return {
       accessToken: this.jwtService.sign(payload),
       // In a real app, you'd also generate a refresh token here

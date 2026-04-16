@@ -18,11 +18,19 @@ export class UsersService {
   async findByEmail(email: string): Promise<User | null> {
     return this.userRepository.findOne({ 
       where: { email },
-      select: ['id', 'name', 'email', 'password', 'keepUpdated', 'photoUrl'] // Explicitly include password for auth
+      select: ['id', 'name', 'email', 'password', 'keepUpdated', 'photoUrl', 'stars'],
+      relations: ['roles']
     });
   }
 
   async findById(id: string): Promise<User | null> {
     return this.userRepository.findOne({ where: { id } });
+  }
+
+  async update(id: string, updateData: Partial<User>): Promise<User> {
+    await this.userRepository.update(id, updateData);
+    const updatedUser = await this.findById(id);
+    if (!updatedUser) throw new Error('User not found');
+    return updatedUser;
   }
 }

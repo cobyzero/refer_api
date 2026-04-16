@@ -11,12 +11,16 @@ import { ProductAvailableSize } from '../products/entities/product-available-siz
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductType } from '../products/entities/product-type.entity';
 import { ProductEnhancement } from '../products/entities/product-enhancement.entity';
+import { Location } from '../locations/entities/location.entity';
+
+import { Role } from '../users/entities/role.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       User, 
-      Product, 
+      Role,
+      Product,
       SeasonalProduct, 
       Reward, 
       StarTransaction,
@@ -24,7 +28,8 @@ import { ProductEnhancement } from '../products/entities/product-enhancement.ent
       ProductAvailableSize,
       ProductCategory,
       ProductType,
-      ProductEnhancement
+      ProductEnhancement,
+      Location
     ]),
   ],
   providers: [SeedService],

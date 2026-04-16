@@ -17,6 +17,9 @@ export class Reward {
   @Column({ nullable: true })
   imageUrl: string;
 
+  @Column({ nullable: true })
+  icon: string;
+
   @Column({ default: true })
   isActive: boolean;
 }

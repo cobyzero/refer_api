@@ -61,6 +61,29 @@ export class StarsService {
     };
   }
 
+  async rewardStars(userId: string, stars: number, reason: string) {
+    if (stars <= 0) return;
+
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const newStars = user.stars + stars;
+    await this.usersService.create({ ...user, stars: newStars });
+
+    const transaction = this.transactionRepository.create({
+      userId,
+      type: 'earn',
+      title: reason,
+      stars: stars,
+    });
+    await this.transactionRepository.save(transaction);
+    
+    return {
+      success: true,
+      newBalance: newStars,
+    };
+  }
+
   async getPerks() {
     return [
       {

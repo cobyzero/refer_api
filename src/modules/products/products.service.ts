@@ -65,6 +65,7 @@ export class ProductsService {
   async findAll() {
     const products = await this.productRepository.find({
       where: { isAvailable: true },
+      order: { createdAt: 'DESC' },
       relations: ['category', 'sizeOptions', 'sizeOptions.size', 'options', 'enhancements'],
     });
     return products.map(p => this.mapProduct(p));

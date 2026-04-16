@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToMany, JoinTable } from 'typeorm';
+import { Role } from './role.entity';
 
 @Entity('users')
 export class User {
@@ -22,6 +23,16 @@ export class User {
 
   @Column({ default: 0 })
   stars: number;
+
+  @Column({ nullable: true })
+  phoneNumber: string;
+
+  @Column({ nullable: true })
+  birthDate: string;
+
+  @ManyToMany(() => Role, (role) => role.users)
+  @JoinTable({ name: 'users_roles' })
+  roles: Role[];
 
   @CreateDateColumn()
   createdAt: Date;

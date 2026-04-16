@@ -12,6 +12,9 @@ export class ProductCategory {
   @Column({ nullable: true })
   iconUrl: string;
 
+  @Column({ nullable: true })
+  imageUrl: string;
+
   @OneToMany(() => Product, (product) => product.category)
   products: Product[];
 }
