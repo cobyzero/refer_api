@@ -5,11 +5,12 @@ import { StarsController } from './stars.controller';
 import { PerksController } from './perks.controller';
 import { Reward } from './entities/reward.entity';
 import { StarTransaction } from './entities/star-transaction.entity';
+import { RedeemedReward } from './entities/redeemed-reward.entity';
 import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Reward, StarTransaction]),
+    TypeOrmModule.forFeature([Reward, StarTransaction, RedeemedReward]),
     UsersModule,
   ],
   providers: [StarsService],

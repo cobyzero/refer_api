@@ -22,6 +22,11 @@ export class StarsController {
     return this.starsService.getRewards();
   }
 
+  @Get('redeemed')
+  async getRedeemed(@Request() req: any) {
+    return this.starsService.getRedeemedRewards(req.user.userId);
+  }
+
   @Post('redeem')
   async redeem(@Request() req: any, @Body('rewardId') rewardId: string) {
     return this.starsService.redeemReward(req.user.userId, rewardId);

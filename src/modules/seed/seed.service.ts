@@ -75,27 +75,41 @@ export class SeedService implements OnModuleInit {
     const hashedPassword = await bcrypt.hash('admin', 10);
 
     // Seed Admin User
-    await this.userRepo.save({
+    const admin = await this.userRepo.save({
       id: '00000000-0000-0000-0000-000000000001',
       name: 'Sebastian Abal',
       email: 'admin@admin.com',
       password: hashedPassword,
-      stars: 85,
       photoUrl: 'https://i.pravatar.cc/150?u=sebastian',
       keepUpdated: true,
       roles: [adminRole]
     });
 
+    // Create Initial Stars Transaction for Admin
+    await this.transactionRepo.save({
+      userId: admin.id,
+      type: 'earn',
+      title: 'Welcome Gift',
+      stars: 85,
+    });
+
     // Seed a regular User
-    await this.userRepo.save({
+    const user = await this.userRepo.save({
       id: '00000000-0000-0000-0000-000000000002',
       name: 'Regular User',
       email: 'user@user.com',
       password: hashedPassword,
-      stars: 10,
       photoUrl: 'https://i.pravatar.cc/150?u=regular',
       keepUpdated: false,
       roles: [userRole]
+    });
+
+    // Create Initial Stars Transaction for Regular User
+    await this.transactionRepo.save({
+      userId: user.id,
+      type: 'earn',
+      title: 'Welcome Gift',
+      stars: 10,
     });
   }
 

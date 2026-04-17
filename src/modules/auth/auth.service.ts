@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -9,7 +9,7 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   async register(registerDto: RegisterDto) {
     const existingUser = await this.usersService.findByEmail(registerDto.email);
@@ -56,11 +56,27 @@ export class AuthService {
         email: user.email,
         keepUpdated: user.keepUpdated,
         photoUrl: user.photoUrl,
-        stars: user.stars,
         roles: roles,
       },
       ...token,
     };
+  }
+
+  async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
+    const user = await this.usersService.findByIdWithPassword(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const isPasswordValid = await bcrypt.compare(changePasswordDto.currentPassword, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Current password incorrect');
+    }
+
+    const hashedNewPassword = await bcrypt.hash(changePasswordDto.newPassword, 10);
+    await this.usersService.update(userId, { password: hashedNewPassword });
+
+    return { message: 'Password changed successfully' };
   }
 
   private generateToken(userId: string, email: string, roles: string[]) {

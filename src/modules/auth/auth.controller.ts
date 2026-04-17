@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Get, UseGuards, Request, HttpStatus, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, ForgotPasswordDto, RefreshTokenDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, ForgotPasswordDto, RefreshTokenDto, ChangePasswordDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -30,6 +30,13 @@ export class AuthController {
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     // This is a placeholder for refresh token logic
     return { accessToken: 'new-mock-access-token', refreshToken: refreshTokenDto.refreshToken };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(@Request() req: any, @Body() changePasswordDto: ChangePasswordDto) {
+    return this.authService.changePassword(req.user.userId, changePasswordDto);
   }
 
   @UseGuards(JwtAuthGuard)

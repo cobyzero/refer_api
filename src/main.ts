@@ -8,6 +8,16 @@ async function bootstrap() {
   app.enableCors();
   app.setGlobalPrefix('api/v1');
   
+  // Serve static files from the 'uploads' directory
+  const express = require('express');
+  const path = require('path');
+  const fs = require('fs');
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir);
+  }
+  app.use('/uploads', express.static(uploadsDir));
+
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     forbidNonWhitelisted: true,

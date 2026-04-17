@@ -21,9 +21,6 @@ export class User {
   @Column({ nullable: true })
   photoUrl: string;
 
-  @Column({ default: 0 })
-  stars: number;
-
   @Column({ nullable: true })
   phoneNumber: string;
 

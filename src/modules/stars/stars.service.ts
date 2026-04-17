@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Reward } from './entities/reward.entity';
 import { StarTransaction } from './entities/star-transaction.entity';
+import { RedeemedReward } from './entities/redeemed-reward.entity';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -12,12 +13,19 @@ export class StarsService {
     private readonly rewardRepository: Repository<Reward>,
     @InjectRepository(StarTransaction)
     private readonly transactionRepository: Repository<StarTransaction>,
+    @InjectRepository(RedeemedReward)
+    private readonly redeemedRewardRepository: Repository<RedeemedReward>,
     private readonly usersService: UsersService,
   ) {}
 
-  async getBalance(userId: string) {
-    const user = await this.usersService.findById(userId);
-    return { stars: user?.stars || 0 };
+  async getBalance(userId: string): Promise<number> {
+    const result = await this.transactionRepository
+      .createQueryBuilder('transaction')
+      .select('SUM(transaction.stars)', 'total')
+      .where('transaction.userId = :userId', { userId })
+      .getRawOne();
+    
+    return parseInt(result?.total || '0', 10);
   }
 
   async getHistory(userId: string) {
@@ -27,25 +35,28 @@ export class StarsService {
     });
   }
 
+  async getRedeemedRewards(userId: string) {
+    return this.redeemedRewardRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async getRewards() {
     return this.rewardRepository.find({ where: { isActive: true } });
   }
 
   async redeemReward(userId: string, rewardId: string) {
-    const user = await this.usersService.findById(userId);
+    const currentStars = await this.getBalance(userId);
     const reward = await this.rewardRepository.findOne({ where: { id: rewardId, isActive: true } });
 
-    if (!user) throw new NotFoundException('User not found');
     if (!reward) throw new NotFoundException('Reward not found');
 
-    if (user.stars < reward.starsRequired) {
+    if (currentStars < reward.starsRequired) {
       throw new BadRequestException('Not enough stars');
     }
 
-    // Process redemption
-    const newStars = user.stars - reward.starsRequired;
-    await this.usersService.create({ ...user, stars: newStars });
-
+    // 1. Create history transaction
     const transaction = this.transactionRepository.create({
       userId,
       type: 'redeem',
@@ -54,21 +65,26 @@ export class StarsService {
     });
     await this.transactionRepository.save(transaction);
 
+    // 2. Create the actual item to be claimed
+    const redeemedReward = this.redeemedRewardRepository.create({
+      userId,
+      rewardId: reward.id,
+      rewardTitle: reward.title,
+    });
+    await this.redeemedRewardRepository.save(redeemedReward);
+
     return {
       success: true,
       message: `Redeemed ${reward.title}`,
-      remainingStars: newStars,
+      remainingStars: currentStars - reward.starsRequired,
+      redeemedReward,
     };
   }
 
   async rewardStars(userId: string, stars: number, reason: string) {
     if (stars <= 0) return;
 
-    const user = await this.usersService.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-
-    const newStars = user.stars + stars;
-    await this.usersService.create({ ...user, stars: newStars });
+    const currentStars = await this.getBalance(userId);
 
     const transaction = this.transactionRepository.create({
       userId,
@@ -80,8 +96,20 @@ export class StarsService {
     
     return {
       success: true,
-      newBalance: newStars,
+      newBalance: currentStars + stars,
     };
+  }
+
+  async claimReward(redeemedRewardId: string, orderId: string) {
+    const redeemedReward = await this.redeemedRewardRepository.findOne({ where: { id: redeemedRewardId } });
+    if (!redeemedReward) throw new NotFoundException('Redeemed reward not found');
+    if (redeemedReward.isClaimed) throw new BadRequestException('Reward already claimed');
+
+    redeemedReward.isClaimed = true;
+    redeemedReward.orderId = orderId;
+    await this.redeemedRewardRepository.save(redeemedReward);
+    
+    return redeemedReward;
   }
 
   async getPerks() {
