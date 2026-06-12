@@ -31,13 +31,24 @@ export class OrdersGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       const payload = this.jwtService.verify(token);
-      const userId = payload.sub || payload.userId; // Support both sub and userId from jwt
+      const userId = payload.sub || payload.userId;
+      const roles = payload.roles || [];
 
       client.data.userId = userId;
       client.join(`user_${userId}`);
+
+      if (roles.includes('ADMIN')) {
+        client.join('admins');
+        this.logger.log(`Admin connected: ${client.id}`);
+      }
+
       this.logger.log(`Client connected to orders: ${client.id} (User: ${userId})`);
     } catch (e) {
-      this.logger.error(`Orders socket connection failed: ${e.message}`);
+      if (e.message === 'jwt expired') {
+        this.logger.warn(`Orders socket connection rejected: token expired (Client: ${client.id})`);
+      } else {
+        this.logger.error(`Orders socket connection failed: ${e.message}`);
+      }
       client.disconnect();
     }
   }
@@ -48,5 +59,11 @@ export class OrdersGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   sendOrderStatusUpdate(userId: string, orderData: any) {
     this.server.to(`user_${userId}`).emit('orderStatusUpdated', orderData);
+    this.server.to('admins').emit('orderStatusUpdated', orderData);
+  }
+
+  sendNewOrderNotification(orderData: any) {
+    this.logger.log(`Broadcasting new order ${orderData?.orderNumber || orderData?.id} to admins`);
+    this.server.to('admins').emit('newOrder', orderData);
   }
 }

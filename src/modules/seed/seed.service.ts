@@ -13,6 +13,8 @@ import { ProductType } from '../products/entities/product-type.entity';
 import { ProductEnhancement } from '../products/entities/product-enhancement.entity';
 import { Location } from '../locations/entities/location.entity';
 import { Role } from '../users/entities/role.entity';
+import { Order } from '../orders/entities/order.entity';
+import { OrderItem } from '../orders/entities/order-item.entity';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -32,6 +34,8 @@ export class SeedService implements OnModuleInit {
     @InjectRepository(ProductEnhancement) private readonly enhancementRepo: Repository<ProductEnhancement>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
     @InjectRepository(Location) private readonly locationRepo: Repository<Location>,
+    @InjectRepository(Order) private readonly orderRepo: Repository<Order>,
+    @InjectRepository(OrderItem) private readonly orderItemRepo: Repository<OrderItem>,
   ) { }
 
   async onModuleInit() {
@@ -50,19 +54,27 @@ export class SeedService implements OnModuleInit {
 
   private async cleanDatabase() {
     this.logger.log('Cleaning database...');
-    await this.enhancementRepo.clear();
-    await this.typeRepo.clear();
-    await this.productSizeRepo.clear();
-    await this.sizeRepo.clear();
-    await this.seasonalRepo.clear();
-    await this.transactionRepo.clear();
-    await this.rewardRepo.clear();
-    await this.productRepo.clear();
-    await this.categoryRepo.clear();
-    await this.locationRepo.clear();
-    await this.userRepo.query('DELETE FROM users_roles'); // Clear join table first
-    await this.userRepo.clear();
-    await this.roleRepo.clear();
+    await this.userRepo.query('PRAGMA foreign_keys = OFF;');
+    try {
+      // Clear dependent tables first to avoid FK constraints
+      await this.orderItemRepo.clear();
+      await this.orderRepo.clear();
+      await this.enhancementRepo.clear();
+      await this.typeRepo.clear();
+      await this.productSizeRepo.clear();
+      await this.sizeRepo.clear();
+      await this.seasonalRepo.clear();
+      await this.transactionRepo.clear();
+      await this.rewardRepo.clear();
+      await this.productRepo.clear();
+      await this.categoryRepo.clear();
+      await this.locationRepo.clear();
+      await this.userRepo.query('DELETE FROM users_roles'); // Clear join table first
+      await this.userRepo.clear();
+      await this.roleRepo.clear();
+    } finally {
+      await this.userRepo.query('PRAGMA foreign_keys = ON;');
+    }
   }
 
   private async seedUsers() {
@@ -163,41 +175,49 @@ export class SeedService implements OnModuleInit {
 
   private async seedRewards() {
     this.logger.log('Seeding rewards...');
+    const products = await this.productRepo.find();
+    const findProd = (name: string) => products.find(p => p.name.toLowerCase().includes(name.toLowerCase()))?.id;
+
     const rewards = [
       {
         title: 'Extra Espresso Shot',
         description: 'Perfect for that extra kick',
         starsRequired: 25,
         icon: 'add_circle_outline',
-        imageUrl: 'https://images.unsplash.com/photo-1510707577719-ae7c14805e3a?auto=format&fit=crop&w=400&h=400'
+        imageUrl: 'https://images.unsplash.com/photo-1510707577719-ae7c14805e3a?auto=format&fit=crop&w=400&h=400',
+        productId: findProd('Cascara Cold Brew') || products[0]?.id
       },
       {
         title: 'Fresh Bakery Item',
         description: 'Any croissant, muffin or cookie',
         starsRequired: 50,
         icon: 'bakery_dining_rounded',
-        imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&h=400'
+        imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=400&h=400',
+        productId: findProd('Butter Croissant') || products[1]?.id
       },
       {
         title: 'Handcrafted Drink',
         description: 'Any coffee or tea prepared by our baristas',
         starsRequired: 100,
         icon: 'local_cafe_rounded',
-        imageUrl: 'https://images.unsplash.com/photo-1541167760496-162955ed8a9f?auto=format&fit=crop&w=400&h=400'
+        imageUrl: 'https://images.unsplash.com/photo-1541167760496-162955ed8a9f?auto=format&fit=crop&w=400&h=400',
+        productId: findProd('Spiced Autumn Latte') || products[2]?.id
       },
       {
         title: 'Lunch Sandwich',
         description: 'Try our gourmet avocado toast or panini',
         starsRequired: 200,
         icon: 'lunch_dining_rounded',
-        imageUrl: 'https://images.unsplash.com/photo-1538087833039-58ae2ff355d2?auto=format&fit=crop&w=400&h=400'
+        imageUrl: 'https://images.unsplash.com/photo-1538087833039-58ae2ff355d2?auto=format&fit=crop&w=400&h=400',
+        productId: findProd('Blueberry Muffin') || products[3]?.id
       },
       {
         title: 'Bag of Whole Bean Coffee',
         description: '250g of our signature roast',
         starsRequired: 400,
         icon: 'shopping_bag_rounded',
-        imageUrl: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=400&h=400'
+        imageUrl: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=400&h=400',
+        productId: findProd('Chocolate Chip Cookie') || products[4]?.id
       }
     ];
     await this.rewardRepo.save(rewards);

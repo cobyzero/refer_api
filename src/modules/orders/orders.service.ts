@@ -62,19 +62,44 @@ export class OrdersService {
       }
 
       await queryRunner.commitTransaction();
+
+      // Fetch with relations for real-time notification
+      const fullOrder = await this.orderRepo.findOne({
+        where: { id: savedOrder.id },
+        relations: ['user', 'items'],
+      });
+      this.ordersGateway.sendNewOrderNotification(fullOrder);
+
       return savedOrder;
     } catch (err) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw err;
     } finally {
       await queryRunner.release();
     }
   }
 
+  async findAll(): Promise<Order[]> {
+    return this.orderRepo.find({
+      relations: ['items', 'user'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async findAllByUser(userId: string): Promise<Order[]> {
+    return this.orderRepo.find({
+      where: { userId },
+      relations: ['items', 'user'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async updateStatus(orderId: string, status: OrderStatus): Promise<Order> {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['items'],
+      relations: ['items', 'user'],
     });
 
     if (!order) throw new Error('Order not found');
@@ -82,17 +107,9 @@ export class OrdersService {
     order.status = status;
     const updatedOrder = await this.orderRepo.save(order);
 
-    // Emit socket update
+    // Emit socket update to user and admins
     this.ordersGateway.sendOrderStatusUpdate(order.userId, updatedOrder);
 
     return updatedOrder;
-  }
-
-  async findAllByUser(userId: string): Promise<Order[]> {
-    return this.orderRepo.find({
-      where: { userId },
-      relations: ['items'],
-      order: { createdAt: 'DESC' },
-    });
   }
 }

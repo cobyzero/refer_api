@@ -49,7 +49,11 @@ export class CartGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const cart = await this.cartService.getCart(userId);
       client.emit('cartUpdated', cart);
     } catch (e) {
-      this.logger.error(`Connection failed: ${e.message}`);
+      if (e.message === 'jwt expired') {
+        this.logger.warn(`Connection rejected: token expired (Client: ${client.id})`);
+      } else {
+        this.logger.error(`Connection failed: ${e.message}`);
+      }
       client.disconnect();
     }
   }

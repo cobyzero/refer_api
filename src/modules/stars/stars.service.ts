@@ -112,6 +112,49 @@ export class StarsService {
     return redeemedReward;
   }
 
+  async getTotalStarsAwarded(): Promise<number> {
+    const result = await this.transactionRepository
+      .createQueryBuilder('transaction')
+      .select('SUM(transaction.stars)', 'total')
+      .where('transaction.type = :type', { type: 'earn' })
+      .getRawOne();
+    
+    return parseInt(result?.total || '0', 10);
+  }
+
+  async getTotalStarsRedeemed(): Promise<number> {
+    const result = await this.transactionRepository
+      .createQueryBuilder('transaction')
+      .select('SUM(ABS(transaction.stars))', 'total')
+      .where('transaction.type = :type', { type: 'redeem' })
+      .getRawOne();
+    
+    return parseInt(result?.total || '0', 10);
+  }
+
+  async getAllTransactions() {
+    return this.transactionRepository.find({
+      relations: ['user'],
+      order: { date: 'DESC' },
+    });
+  }
+
+  async createReward(data: Partial<Reward>): Promise<Reward> {
+    const reward = this.rewardRepository.create(data);
+    return this.rewardRepository.save(reward);
+  }
+
+  async updateReward(id: string, data: Partial<Reward>): Promise<Reward> {
+    await this.rewardRepository.update(id, data);
+    const updated = await this.rewardRepository.findOne({ where: { id } });
+    if (!updated) throw new NotFoundException('Reward not found');
+    return updated;
+  }
+
+  async deleteReward(id: string): Promise<void> {
+    await this.rewardRepository.delete(id);
+  }
+
   async getPerks() {
     return [
       {

@@ -20,6 +20,9 @@ export class Reward {
   @Column({ nullable: true })
   icon: string;
 
+  @Column({ nullable: true })
+  productId: string;
+
   @Column({ default: true })
   isActive: boolean;
 }

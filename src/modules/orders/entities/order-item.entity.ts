@@ -34,4 +34,7 @@ export class OrderItem {
 
   @Column({ nullable: true })
   type: string;
+
+  @Column({ type: 'simple-array', nullable: true })
+  enhancements?: string[];
 }

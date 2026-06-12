@@ -25,6 +25,11 @@ export class CreateOrderItemDto {
   @IsOptional()
   @IsString()
   type?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  enhancements?: string[];
 }
 
 export class CreateOrderDto {

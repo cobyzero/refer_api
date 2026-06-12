@@ -12,6 +12,8 @@ import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductType } from '../products/entities/product-type.entity';
 import { ProductEnhancement } from '../products/entities/product-enhancement.entity';
 import { Location } from '../locations/entities/location.entity';
+import { Order } from '../orders/entities/order.entity';
+import { OrderItem } from '../orders/entities/order-item.entity';
 
 import { Role } from '../users/entities/role.entity';
 
@@ -29,7 +31,9 @@ import { Role } from '../users/entities/role.entity';
       ProductCategory,
       ProductType,
       ProductEnhancement,
-      Location
+      Location,
+      Order,
+      OrderItem
     ]),
   ],
   providers: [SeedService],
