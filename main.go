@@ -1,0 +1,122 @@
+package main
+
+import (
+	"log"
+	"os"
+	"refer_api/database"
+	"refer_api/gateway"
+	"refer_api/handlers"
+	"refer_api/models"
+	"refer_api/repository"
+	"refer_api/routes"
+	"refer_api/services"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/joho/godotenv"
+)
+
+func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: No .env file found or error reading it, relying on system environment variables")
+	}
+
+	// Initialize Database Connection
+	database.Connect()
+
+	// Register many-to-many join models so Bun can resolve them with correct column names
+	database.DB.RegisterModel((*models.UserRole)(nil))
+	database.DB.RegisterModel((*models.CartItemEnhancement)(nil))
+
+	// Optional Database Seeding
+	if os.Getenv("SEED_DB") == "true" {
+		log.Println("[Seed] Wiping database and seeding initial data...")
+		if err := database.Seed(database.DB); err != nil {
+			log.Fatalf("[Seed] Seeding failed: %v", err)
+		}
+		log.Println("[Seed] Seeding completed successfully!")
+	}
+
+	// Initialize SocketGateway
+	socketGateway := gateway.InitSocketGateway()
+
+	// Initialize Layers (Clean Architecture)
+	userRepo := repository.NewUserRepository(database.DB)
+	authService := services.NewAuthService(userRepo)
+	authHandler := handlers.NewAuthHandler(authService)
+
+	userService := services.NewUserService(userRepo)
+	userHandler := handlers.NewUserHandler(userService)
+
+	productRepo := repository.NewProductRepository(database.DB)
+	productService := services.NewProductService(productRepo)
+	productHandler := handlers.NewProductHandler(productService)
+
+	starRepo := repository.NewStarRepository(database.DB)
+	starService := services.NewStarService(starRepo)
+	starHandler := handlers.NewStarHandler(starService)
+
+	dashboardService := services.NewDashboardService(database.DB, userRepo, starRepo)
+	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
+
+	searchService := services.NewSearchService(productRepo)
+	searchHandler := handlers.NewSearchHandler(searchService)
+
+	configHandler := handlers.NewConfigHandler()
+
+	locationRepo := repository.NewLocationRepository(database.DB)
+	locationService := services.NewLocationService(locationRepo)
+	locationHandler := handlers.NewLocationHandler(locationService)
+
+	paymentService := services.NewPaymentService()
+	paymentHandler := handlers.NewPaymentHandler(paymentService)
+
+	orderRepo := repository.NewOrderRepository(database.DB)
+	orderService := services.NewOrderService(orderRepo, productRepo)
+	orderHandler := handlers.NewOrderHandler(orderService)
+
+	cartRepo := repository.NewCartRepository(database.DB)
+	cartService := services.NewCartService(cartRepo)
+	gateway.CartServiceInstance = cartService
+
+	app := fiber.New()
+
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "http://localhost:4200",
+	}))
+
+	// Serve uploaded files statically
+	app.Static("/uploads", "./uploads")
+
+	// Base Hello World route
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("Hello, World! Welcome to the Fiber API with Bun ORM (Layered Architecture).")
+	})
+
+	// Route Socket.io requests using adaptor
+	app.All("/socket.io/*", adaptor.HTTPHandler(socketGateway.GetServer().ServeHandler(nil)))
+
+	// Setup Router Groups
+	api := app.Group("/api/v1")
+
+	// Register Routes
+	routes.RegisterAuthRoutes(api, authHandler)
+	routes.RegisterUserRoutes(api, userHandler)
+	routes.RegisterProductRoutes(api, productHandler)
+	routes.RegisterStarRoutes(api, starHandler)
+	routes.RegisterDashboardRoutes(api, dashboardHandler)
+	routes.RegisterSearchRoutes(api, searchHandler)
+	routes.RegisterConfigRoutes(api, configHandler)
+	routes.RegisterLocationRoutes(api, locationHandler)
+	routes.RegisterPaymentRoutes(api, paymentHandler)
+	routes.RegisterOrderRoutes(api, orderHandler)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	log.Fatal(app.Listen(":" + port))
+}

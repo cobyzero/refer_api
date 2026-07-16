@@ -1,0 +1,25 @@
+/Users/mac/.profile: line 6: /Users/mac/.cargo/env: No such file or directory
+
+> refer_api@0.0.1 test
+> jest --watchman=false
+
+PASS src/modules/auth/auth.service.spec.ts
+PASS src/modules/orders/orders.service.spec.ts
+PASS src/modules/dashboard/dashboard.service.spec.ts
+PASS src/modules/cart/cart.service.spec.ts
+PASS src/modules/locations/locations.service.spec.ts
+PASS src/modules/products/products.service.spec.ts
+PASS src/modules/seed/seed.service.spec.ts
+[32m[Nest] 96412  - [39m05/03/2026, 4:03:23 PM [32m    LOG[39m [38;5;3m[SeedService] [39m[32mStarting DB Seeding...[39m
+[32m[Nest] 96412  - [39m05/03/2026, 4:03:23 PM [32m    LOG[39m [38;5;3m[SeedService] [39m[32mSeeding completed successfully[39m
+PASS src/modules/search/search.service.spec.ts
+PASS src/modules/users/users.service.spec.ts
+PASS src/modules/stars/stars.service.spec.ts
+PASS src/modules/payments/payments.service.spec.ts
+PASS src/modules/app-config/app-config.service.spec.ts
+
+Test Suites: 12 passed, 12 total
+Tests:       22 passed, 22 total
+Snapshots:   0 total
+Time:        2.069 s
+Ran all test suites.

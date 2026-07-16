@@ -40,3 +40,18 @@ lerna-debug.log*
 *.sqlite
 /test-reports
 /uploads
+
+# Go build output
+/main
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+go.work
+/tmp
+build-errors.log
+
+
+/v1/node_modules
+/v1/dist
