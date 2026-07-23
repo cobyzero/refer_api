@@ -1,0 +1,2064 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporte Completo de Pruebas: NestJS vs Go (Fiber)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient: radial-gradient(circle at top right, #1e1b4b 0%, #0f172a 100%);
+      --card-bg: rgba(30, 41, 59, 0.45);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --color-go: #00add8;
+      --color-nest: #e0234e;
+      --color-success: #10b981;
+      --color-purple: #818cf8;
+      --color-amber: #f59e0b;
+      --font-family: 'Outfit', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      padding: 2.5rem 1.5rem;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .badge-migrated {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--color-success);
+      padding: 0.4rem 1rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      margin-bottom: 1.5rem;
+    }
+
+    h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(to right, #38bdf8, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      font-weight: 300;
+    }
+
+    /* Primary Navigation tabs */
+    .primary-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 3rem;
+    }
+
+    .primary-tab-btn {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      font-family: var(--font-family);
+      font-size: 1.1rem;
+      font-weight: 600;
+      padding: 0.8rem 2rem;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .primary-tab-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+    }
+
+    .primary-tab-btn.active {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 4px 20px rgba(124, 58, 237, 0.3);
+    }
+
+    .page-section {
+      display: none;
+    }
+
+    .page-section.active {
+      display: block;
+      animation: fadeIn 0.4s ease;
+    }
+
+    /* Executive dashboard */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 3.5rem;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(20px);
+      border-radius: 16px;
+      padding: 1.75rem;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 35px rgba(0,0,0,0.15);
+    }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--color-purple);
+    }
+
+    .stat-card.improvement::before {
+      background: var(--color-success);
+    }
+
+    .stat-card.duration::before {
+      background: var(--color-amber);
+    }
+
+    .stat-card .label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-card .value {
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: var(--text-main);
+    }
+
+    .stat-card .detail {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+
+    /* Module Tabs */
+    .module-tabs {
+      margin-bottom: 2rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      gap: 0.5rem;
+      overflow-x: auto;
+      padding-bottom: 1px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-family: var(--font-family);
+      font-size: 1rem;
+      font-weight: 500;
+      padding: 0.75rem 1.25rem;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+    }
+
+    .tab-btn.active {
+      color: var(--color-purple);
+      border-bottom-color: var(--color-purple);
+      font-weight: 600;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.4s ease;
+    }
+
+    /* Modules list cards */
+    .endpoint-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .endpoint-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .endpoint-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .method-badge {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      color: #fff;
+    }
+
+    .method-badge.get { background: #0ea5e9; }
+    .method-badge.post { background: #10b981; }
+
+    .endpoint-path {
+      font-family: var(--font-mono);
+      background: rgba(0, 0, 0, 0.2);
+      font-size: 0.9rem;
+      padding: 0.3rem 0.8rem;
+      border-radius: 8px;
+      color: var(--color-purple);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+
+    @media (min-width: 900px) {
+      .comparison-grid {
+        grid-template-columns: 1.2fr 1fr;
+      }
+    }
+
+    .visual-charts {
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .chart-item {
+      margin-bottom: 1.5rem;
+    }
+
+    .chart-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .chart-label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .chart-label strong {
+      color: var(--text-main);
+    }
+
+    .bar-track {
+      height: 28px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 14px;
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .bar-fill.nest {
+      background: linear-gradient(90deg, var(--color-nest) 0%, #ff4d79 100%);
+    }
+
+    .bar-fill.go {
+      background: linear-gradient(90deg, var(--color-go) 0%, #38bdf8 100%);
+    }
+
+    .bar-value {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
+
+    /* Stats table styles */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.08);
+    }
+
+    td {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.95rem;
+    }
+
+    .pill-tech {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .pill-tech.nest {
+      background: rgba(224, 35, 78, 0.15);
+      color: #ff4d79;
+      border: 1px solid rgba(224, 35, 78, 0.3);
+    }
+
+    .pill-tech.go {
+      background: rgba(0, 173, 216, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(0, 173, 216, 0.3);
+    }
+
+    .win-text {
+      color: var(--color-success);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    /* Terminal logs */
+    .terminal-container {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: #38bdf8;
+      overflow-x: auto;
+      white-space: pre;
+      margin-top: 1.5rem;
+      box-shadow: inset 0 2px 10px rgba(0,0,0,0.8);
+    }
+
+    .badge-test-status {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .badge-test-status.pass {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-test-status.fail {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge-migrated">
+        <span>⚡ Migración Exitosa a Golang</span>
+      </div>
+      <h1>Reporte Completo de Pruebas</h1>
+      <p>Rendimiento y verificación del backend en Go (Fiber) frente a NestJS</p>
+    </header>
+
+    <!-- Top Navigation -->
+    <div class="primary-tabs">
+      <button class="primary-tab-btn active" onclick="switchSection(event, 'performance-sec')">📈 Pruebas de Carga (Performance)</button>
+      <button class="primary-tab-btn" onclick="switchSection(event, 'unit-sec')">🧪 Pruebas Unitarias (Go)</button>
+    </div>
+
+    <!-- Section 1: Performance Benchmarks -->
+    <div id="performance-sec" class="page-section active">
+      <!-- Executive stats -->
+      <div class="dashboard-grid">
+        <div class="stat-card improvement">
+          <div class="label">Rendimiento General</div>
+          <div class="value">9.0x</div>
+          <div class="detail">Más peticiones por segundo procesadas con Go</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Endpoints Evaluados</div>
+          <div class="value">13</div>
+          <div class="detail">Organizados en 7 módulos del sistema</div>
+        </div>
+        <div class="stat-card duration">
+          <div class="label">Duración Total Test Suite</div>
+          <div class="value">276.2s</div>
+          <div class="detail">NestJS: 137.8s | Go (Fiber): 133.9s</div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="module-tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'all')">Ver Todos</button>
+        <button class="tab-btn" onclick="switchTab(event, 'General')">General</button>
+        <button class="tab-btn" onclick="switchTab(event, 'Auth')">Auth</button>
+        <button class="tab-btn" onclick="switchTab(event, 'Products')">Products</button>
+        <button class="tab-btn" onclick="switchTab(event, 'Locations')">Locations</button>
+        <button class="tab-btn" onclick="switchTab(event, 'Stars')">Stars</button>
+        <button class="tab-btn" onclick="switchTab(event, 'Users')">Users</button>
+        <button class="tab-btn" onclick="switchTab(event, 'Dashboard')">Dashboard</button>
+      </div>
+
+      <main>
+        <div class="endpoint-card tab-content all module-General" data-module="General">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Root Endpoint</span>
+            </div>
+            <span class="endpoint-path">/</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 9.61x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 10%"></div>
+                  <span class="bar-value">NestJS: 15628 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 150185 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 99.6%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 2.54 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 0%"></div>
+                  <span class="bar-value">Go: 0.01 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>15628.37</td>
+                    <td class="win-text">150184.73 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>2.54 ms</td>
+                    <td class="win-text">0.01 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>2.00 ms</td>
+                    <td>0.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>6.00 ms</td>
+                    <td>0.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>5.02 MB/s</td>
+                    <td>27.50 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-General" data-module="General">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>System Config</span>
+            </div>
+            <span class="endpoint-path">/api/v1/config</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 8.24x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 12%"></div>
+                  <span class="bar-value">NestJS: 18168 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 149661 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 99.6%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 2.24 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 0%"></div>
+                  <span class="bar-value">Go: 0.01 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>18168.00</td>
+                    <td class="win-text">149661.10 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>2.24 ms</td>
+                    <td class="win-text">0.01 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>2.00 ms</td>
+                    <td>0.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>5.00 ms</td>
+                    <td>0.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>9.43 MB/s</td>
+                    <td>54.81 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Auth" data-module="Auth">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge post">POST</span>
+              <span>Login API</span>
+            </div>
+            <span class="endpoint-path">/api/v1/auth/login</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 1.79x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 56%"></div>
+                  <span class="bar-value">NestJS: 25 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 45 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 41.4%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 1781.28 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 59%"></div>
+                  <span class="bar-value">Go: 1044.63 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>25.30</td>
+                    <td class="win-text">45.30 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>1781.28 ms</td>
+                    <td class="win-text">1044.63 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>1805.00 ms</td>
+                    <td>1237.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>2478.00 ms</td>
+                    <td>1419.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.02 MB/s</td>
+                    <td>0.03 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Products" data-module="Products">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get All Products</span>
+            </div>
+            <span class="endpoint-path">/api/v1/products</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 6.15x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 16%"></div>
+                  <span class="bar-value">NestJS: 36 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 220 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 82.9%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 1311.24 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 17%"></div>
+                  <span class="bar-value">Go: 223.77 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>35.80</td>
+                    <td class="win-text">220.00 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>1311.24 ms</td>
+                    <td class="win-text">223.77 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>1093.00 ms</td>
+                    <td>180.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>3100.00 ms</td>
+                    <td>913.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.33 MB/s</td>
+                    <td>0.04 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Products" data-module="Products">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Seasonal Products</span>
+            </div>
+            <span class="endpoint-path">/api/v1/products/seasonal</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 5.17x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 19%"></div>
+                  <span class="bar-value">NestJS: 44 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 227 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 79.8%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 1080.10 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 20%"></div>
+                  <span class="bar-value">Go: 217.67 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>43.90</td>
+                    <td class="win-text">226.90 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>1080.10 ms</td>
+                    <td class="win-text">217.67 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>981.00 ms</td>
+                    <td>180.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>2217.00 ms</td>
+                    <td>924.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.17 MB/s</td>
+                    <td>0.05 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Products" data-module="Products">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Top Rated Products</span>
+            </div>
+            <span class="endpoint-path">/api/v1/products/top-rated</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 9.57x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 10%"></div>
+                  <span class="bar-value">NestJS: 22 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 213 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 88.5%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 2005.70 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 12%"></div>
+                  <span class="bar-value">Go: 231.46 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>22.30</td>
+                    <td class="win-text">213.40 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>2005.70 ms</td>
+                    <td class="win-text">231.46 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>1968.00 ms</td>
+                    <td>179.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>3036.00 ms</td>
+                    <td>926.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.11 MB/s</td>
+                    <td>0.04 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Products" data-module="Products">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Product Categories</span>
+            </div>
+            <span class="endpoint-path">/api/v1/products/categories</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 4.91x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 20%"></div>
+                  <span class="bar-value">NestJS: 46 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 223 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 78.9%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 1051.76 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 21%"></div>
+                  <span class="bar-value">Go: 221.63 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>45.50</td>
+                    <td class="win-text">223.30 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>1051.76 ms</td>
+                    <td class="win-text">221.63 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>907.00 ms</td>
+                    <td>179.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>2625.00 ms</td>
+                    <td>929.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.05 MB/s</td>
+                    <td>0.05 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Locations" data-module="Locations">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Locations</span>
+            </div>
+            <span class="endpoint-path">/api/v1/locations</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 4.48x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 22%"></div>
+                  <span class="bar-value">NestJS: 50 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 224 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 77.0%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 956.14 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 23%"></div>
+                  <span class="bar-value">Go: 220.12 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>50.00</td>
+                    <td class="win-text">224.20 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>956.14 ms</td>
+                    <td class="win-text">220.12 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>910.00 ms</td>
+                    <td>180.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>1743.00 ms</td>
+                    <td>930.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.04 MB/s</td>
+                    <td>0.17 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Stars" data-module="Stars">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Perks</span>
+            </div>
+            <span class="endpoint-path">/api/v1/perks</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 9.28x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 11%"></div>
+                  <span class="bar-value">NestJS: 16760 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 155491 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 99.6%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 2.35 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 0%"></div>
+                  <span class="bar-value">Go: 0.01 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>16760.37</td>
+                    <td class="win-text">155490.91 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>2.35 ms</td>
+                    <td class="win-text">0.01 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>2.00 ms</td>
+                    <td>0.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>6.00 ms</td>
+                    <td>0.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>7.86 MB/s</td>
+                    <td>49.38 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Stars" data-module="Stars">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Stars Balance</span>
+            </div>
+            <span class="endpoint-path">/api/v1/stars/balance</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 4.08x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 25%"></div>
+                  <span class="bar-value">NestJS: 54 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 221 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 74.5%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 878.71 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 26%"></div>
+                  <span class="bar-value">Go: 224.16 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>54.10</td>
+                    <td class="win-text">220.60 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>878.71 ms</td>
+                    <td class="win-text">224.16 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>909.00 ms</td>
+                    <td>179.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>953.00 ms</td>
+                    <td>918.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.01 MB/s</td>
+                    <td>0.03 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Stars" data-module="Stars">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Rewards List</span>
+            </div>
+            <span class="endpoint-path">/api/v1/stars/rewards</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 4.12x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 24%"></div>
+                  <span class="bar-value">NestJS: 50 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 207 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 74.9%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 950.07 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 25%"></div>
+                  <span class="bar-value">Go: 238.89 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>50.20</td>
+                    <td class="win-text">206.60 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>950.07 ms</td>
+                    <td class="win-text">238.89 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>911.00 ms</td>
+                    <td>181.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>1669.00 ms</td>
+                    <td>927.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.10 MB/s</td>
+                    <td>0.38 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Users" data-module="Users">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get User Profile</span>
+            </div>
+            <span class="endpoint-path">/api/v1/users/profile</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 3.15x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 32%"></div>
+                  <span class="bar-value">NestJS: 25 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 79 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 66.4%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 1836.67 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 34%"></div>
+                  <span class="bar-value">Go: 617.25 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>25.00</td>
+                    <td class="win-text">78.70 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>1836.67 ms</td>
+                    <td class="win-text">617.25 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>1825.00 ms</td>
+                    <td>541.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>2674.00 ms</td>
+                    <td>1298.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.01 MB/s</td>
+                    <td>0.03 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+        <div class="endpoint-card tab-content all module-Dashboard" data-module="Dashboard">
+          <div class="endpoint-header">
+            <div class="endpoint-title">
+              <span class="method-badge get">GET</span>
+              <span>Get Dashboard Summary</span>
+            </div>
+            <span class="endpoint-path">/api/v1/dashboard/summary</span>
+          </div>
+
+          <div class="comparison-grid">
+            <div class="visual-charts">
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Rendimiento (Req/seg)</span>
+                  <strong>Mejora: 9.20x</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 11%"></div>
+                  <span class="bar-value">NestJS: 5 rps</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 100%"></div>
+                  <span class="bar-value">Go (Fiber): 47 rps</span>
+                </div>
+              </div>
+
+              <div class="chart-item">
+                <div class="chart-label">
+                  <span>Latencia Promedio (ms)</span>
+                  <strong>Reducción: 82.6%</strong>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill nest" style="width: 100%"></div>
+                  <span class="bar-value">NestJS: 5882.93 ms</span>
+                </div>
+                <div class="bar-track" style="margin-top: 8px;">
+                  <div class="bar-fill go" style="width: 17%"></div>
+                  <span class="bar-value">Go: 1026.44 ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Métrica</th>
+                    <th><span class="pill-tech nest">NestJS</span></th>
+                    <th><span class="pill-tech go">Go (Fiber)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Req/seg Promedio</strong></td>
+                    <td>5.10</td>
+                    <td class="win-text">46.90 rps</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia Promedio</strong></td>
+                    <td>5882.93 ms</td>
+                    <td class="win-text">1026.44 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P50</strong></td>
+                    <td>5892.00 ms</td>
+                    <td>901.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Latencia P99</strong></td>
+                    <td>6470.00 ms</td>
+                    <td>2370.00 ms</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Transferencia Promedio</strong></td>
+                    <td>0.01 MB/s</td>
+                    <td>0.12 MB/s</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Errores Totales</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+      </main>
+    </div>
+
+    <!-- Section 2: Go Unit Tests -->
+    <div id="unit-sec" class="page-section">
+      <!-- Unit Test stats -->
+      <div class="dashboard-grid">
+        <div class="stat-card improvement">
+          <div class="label">Tasa de Aprobación</div>
+          <div class="value">100%</div>
+          <div class="detail">40 de 40 pruebas exitosas</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Casos de Prueba</div>
+          <div class="value">40</div>
+          <div class="detail">Ejecutados con el comando go test</div>
+        </div>
+        <div class="stat-card duration">
+          <div class="label">Estado General</div>
+          <div class="value" style="color: var(--color-success)">PASS</div>
+          <div class="detail">Suite de pruebas sin errores</div>
+        </div>
+      </div>
+
+      <!-- Test Cases List -->
+      <div class="endpoint-card">
+        <h2 style="margin-bottom: 1.5rem; font-weight: 700;">Casos de Prueba Ejecutados</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Caso de Prueba</th>
+              <th>Paquete</th>
+              <th>Estado</th>
+              <th>Tiempo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestJWTGenerateAndValidate</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/utils</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestJWTValidateInvalidToken</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/utils</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestAuthService_Login_UserNotFound</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestAuthService_Login_WrongPassword</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.070s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestAuthService_Register_EmailAlreadyExists</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestAuthService_Register_FindByEmailSystemError</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestAuthService_ResetPassword_NoCodeRequested</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_GetProfile_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_GetProfile_StarBalanceError_ReturnsZero</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_GetProfile_NotFound</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_UpdateProfile_UpdatesName</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_Delete_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_Delete_Error</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestUserService_FindAll_ReturnsUsers</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_AddToCart_NoProductID</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_AddToCart_CreateError</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_AddToCart_DefaultQuantity</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_RemoveFromCart_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_RemoveFromCart_Error</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_UpdateItemQuantity_ZeroRemovesItem</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_UpdateItemQuantity_ItemNotFound</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_UpdateItemQuantity_UpdateError</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_ClearCart_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_ClearCart_Error</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_GetCart_Empty</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestCartService_GetCart_SkipsNilProduct</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_GetPerks_ReturnsTwoPerks</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_GetBalance_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_GetBalance_Error</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_GetHistory_ReturnsEmptySliceNotNil</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_GetRewards_ReturnsEmptySliceNotNil</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_RedeemReward_RewardNotFound</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_RedeemReward_InactiveReward</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_RedeemReward_NotEnoughStars</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_RedeemReward_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_CreateReward_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_CreateReward_DefaultsIsActiveTrue</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_DeleteReward_Error</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_UpdateReward_NotFound</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+            <tr>
+              <td><strong style="font-family: var(--font-mono);">TestStarService_UpdateReward_Success</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">refer_api/services</td>
+              <td><span class="badge-test-status pass">PASS</span></td>
+              <td style="font-family: var(--font-mono);">0.000s</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Console Log -->
+      <div class="endpoint-card">
+        <h2 style="margin-bottom: 1rem; font-weight: 700;">Salida de Consola (go test -v)</h2>
+        <div class="terminal-container">?   	refer_api	[no test files]
+?   	refer_api/database	[no test files]
+?   	refer_api/gateway	[no test files]
+?   	refer_api/handlers	[no test files]
+?   	refer_api/middleware	[no test files]
+?   	refer_api/models	[no test files]
+?   	refer_api/repository	[no test files]
+?   	refer_api/routes	[no test files]
+=== RUN   TestJWTGenerateAndValidate
+--- PASS: TestJWTGenerateAndValidate (0.00s)
+=== RUN   TestJWTValidateInvalidToken
+--- PASS: TestJWTValidateInvalidToken (0.00s)
+PASS
+ok  	refer_api/utils	(cached)
+?   	refer_api/v1/node_modules/flatted/golang/pkg/flatted	[no test files]
+=== RUN   TestAuthService_Login_UserNotFound
+--- PASS: TestAuthService_Login_UserNotFound (0.00s)
+=== RUN   TestAuthService_Login_WrongPassword
+--- PASS: TestAuthService_Login_WrongPassword (0.07s)
+=== RUN   TestAuthService_Register_EmailAlreadyExists
+--- PASS: TestAuthService_Register_EmailAlreadyExists (0.00s)
+=== RUN   TestAuthService_Register_FindByEmailSystemError
+--- PASS: TestAuthService_Register_FindByEmailSystemError (0.00s)
+=== RUN   TestAuthService_ResetPassword_NoCodeRequested
+--- PASS: TestAuthService_ResetPassword_NoCodeRequested (0.00s)
+=== RUN   TestUserService_GetProfile_Success
+--- PASS: TestUserService_GetProfile_Success (0.00s)
+=== RUN   TestUserService_GetProfile_StarBalanceError_ReturnsZero
+--- PASS: TestUserService_GetProfile_StarBalanceError_ReturnsZero (0.00s)
+=== RUN   TestUserService_GetProfile_NotFound
+--- PASS: TestUserService_GetProfile_NotFound (0.00s)
+=== RUN   TestUserService_UpdateProfile_UpdatesName
+--- PASS: TestUserService_UpdateProfile_UpdatesName (0.00s)
+=== RUN   TestUserService_Delete_Success
+--- PASS: TestUserService_Delete_Success (0.00s)
+=== RUN   TestUserService_Delete_Error
+--- PASS: TestUserService_Delete_Error (0.00s)
+=== RUN   TestUserService_FindAll_ReturnsUsers
+--- PASS: TestUserService_FindAll_ReturnsUsers (0.00s)
+=== RUN   TestCartService_AddToCart_NoProductID
+--- PASS: TestCartService_AddToCart_NoProductID (0.00s)
+=== RUN   TestCartService_AddToCart_CreateError
+--- PASS: TestCartService_AddToCart_CreateError (0.00s)
+=== RUN   TestCartService_AddToCart_DefaultQuantity
+2026/07/13 18:22:59 [CartService] notifyCartUpdate initiated for user: user1
+2026/07/13 18:22:59 [CartService] notifyCartUpdate failed: gateway.Instance is nil
+--- PASS: TestCartService_AddToCart_DefaultQuantity (0.00s)
+=== RUN   TestCartService_RemoveFromCart_Success
+2026/07/13 18:22:59 [CartService] notifyCartUpdate initiated for user: user1
+2026/07/13 18:22:59 [CartService] notifyCartUpdate failed: gateway.Instance is nil
+--- PASS: TestCartService_RemoveFromCart_Success (0.00s)
+=== RUN   TestCartService_RemoveFromCart_Error
+--- PASS: TestCartService_RemoveFromCart_Error (0.00s)
+=== RUN   TestCartService_UpdateItemQuantity_ZeroRemovesItem
+2026/07/13 18:22:59 [CartService] notifyCartUpdate initiated for user: user1
+2026/07/13 18:22:59 [CartService] notifyCartUpdate failed: gateway.Instance is nil
+--- PASS: TestCartService_UpdateItemQuantity_ZeroRemovesItem (0.00s)
+=== RUN   TestCartService_UpdateItemQuantity_ItemNotFound
+--- PASS: TestCartService_UpdateItemQuantity_ItemNotFound (0.00s)
+=== RUN   TestCartService_UpdateItemQuantity_UpdateError
+--- PASS: TestCartService_UpdateItemQuantity_UpdateError (0.00s)
+=== RUN   TestCartService_ClearCart_Success
+2026/07/13 18:22:59 [CartService] notifyCartUpdate initiated for user: user1
+2026/07/13 18:22:59 [CartService] notifyCartUpdate failed: gateway.Instance is nil
+--- PASS: TestCartService_ClearCart_Success (0.00s)
+=== RUN   TestCartService_ClearCart_Error
+--- PASS: TestCartService_ClearCart_Error (0.00s)
+=== RUN   TestCartService_GetCart_Empty
+--- PASS: TestCartService_GetCart_Empty (0.00s)
+=== RUN   TestCartService_GetCart_SkipsNilProduct
+--- PASS: TestCartService_GetCart_SkipsNilProduct (0.00s)
+=== RUN   TestStarService_GetPerks_ReturnsTwoPerks
+--- PASS: TestStarService_GetPerks_ReturnsTwoPerks (0.00s)
+=== RUN   TestStarService_GetBalance_Success
+--- PASS: TestStarService_GetBalance_Success (0.00s)
+=== RUN   TestStarService_GetBalance_Error
+--- PASS: TestStarService_GetBalance_Error (0.00s)
+=== RUN   TestStarService_GetHistory_ReturnsEmptySliceNotNil
+--- PASS: TestStarService_GetHistory_ReturnsEmptySliceNotNil (0.00s)
+=== RUN   TestStarService_GetRewards_ReturnsEmptySliceNotNil
+--- PASS: TestStarService_GetRewards_ReturnsEmptySliceNotNil (0.00s)
+=== RUN   TestStarService_RedeemReward_RewardNotFound
+--- PASS: TestStarService_RedeemReward_RewardNotFound (0.00s)
+=== RUN   TestStarService_RedeemReward_InactiveReward
+--- PASS: TestStarService_RedeemReward_InactiveReward (0.00s)
+=== RUN   TestStarService_RedeemReward_NotEnoughStars
+--- PASS: TestStarService_RedeemReward_NotEnoughStars (0.00s)
+=== RUN   TestStarService_RedeemReward_Success
+--- PASS: TestStarService_RedeemReward_Success (0.00s)
+=== RUN   TestStarService_CreateReward_Success
+--- PASS: TestStarService_CreateReward_Success (0.00s)
+=== RUN   TestStarService_CreateReward_DefaultsIsActiveTrue
+--- PASS: TestStarService_CreateReward_DefaultsIsActiveTrue (0.00s)
+=== RUN   TestStarService_DeleteReward_Error
+--- PASS: TestStarService_DeleteReward_Error (0.00s)
+=== RUN   TestStarService_UpdateReward_NotFound
+--- PASS: TestStarService_UpdateReward_NotFound (0.00s)
+=== RUN   TestStarService_UpdateReward_Success
+--- PASS: TestStarService_UpdateReward_Success (0.00s)
+PASS
+ok  	refer_api/services	0.456s
+</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchSection(evt, sectionId) {
+      // Toggle primary tabs
+      const tabs = document.querySelectorAll('.primary-tab-btn');
+      tabs.forEach(t => t.classList.remove('active'));
+      evt.currentTarget.classList.add('active');
+
+      // Toggle sections
+      const sections = document.querySelectorAll('.page-section');
+      sections.forEach(s => s.classList.remove('active'));
+      document.getElementById(sectionId).classList.add('active');
+    }
+
+    function switchTab(evt, moduleName) {
+      const buttons = document.querySelectorAll('.tab-btn');
+      buttons.forEach(btn => btn.classList.remove('active'));
+      evt.currentTarget.classList.add('active');
+
+      const cards = document.querySelectorAll('.endpoint-card.tab-content');
+      cards.forEach(card => {
+        if (moduleName === 'all') {
+          card.style.display = 'block';
+        } else {
+          if (card.dataset.module === moduleName) {
+            card.style.display = 'block';
+          } else {
+            card.style.display = 'none';
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
