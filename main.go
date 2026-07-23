@@ -24,7 +24,10 @@ func main() {
 	}
 
 	// Initialize Database Connection
-	database.Connect()
+	if err := database.Connect(); err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer database.Close()
 
 	// Register many-to-many join models so Bun can resolve them with correct column names
 	database.DB.RegisterModel((*models.UserRole)(nil))
