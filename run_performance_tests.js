@@ -24,6 +24,7 @@ if (fs.existsSync(envPath)) {
 // Config
 const DURATION = 10; // seconds per endpoint test
 const CONCURRENCY = 50; // concurrent connections
+const SERVER_TIMEOUT = 45000; // 45 seconds timeout for server startup (Windows needs more time for Go compilation)
 
 const ENDPOINTS = [
   // General / System
@@ -63,13 +64,13 @@ const ENDPOINTS = [
 ];
 
 // Helper to check if server is up
-function waitOn(port, timeoutMs = 15000) {
+function waitOn(port, timeoutMs = SERVER_TIMEOUT) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const interval = setInterval(() => {
       if (Date.now() - start > timeoutMs) {
         clearInterval(interval);
-        reject(new Error(`Timeout waiting for port ${port}`));
+        reject(new Error(`Timeout waiting for port ${port} after ${timeoutMs / 1000}s`));
         return;
       }
       const req = http.get(`http://localhost:${port}/`, (res) => {
@@ -78,9 +79,9 @@ function waitOn(port, timeoutMs = 15000) {
         resolve();
       });
       req.on('error', () => {
-        // Ignored, server not ready yet
+        // Server not ready yet, keep waiting
       });
-    }, 250);
+    }, 500);
   });
 }
 
@@ -143,16 +144,48 @@ function runAutocannon(port, ep, token) {
   });
 }
 
+function killProcess(proc) {
+  if (proc.killed) return;
+  try {
+    if (process.platform === 'win32') {
+      // On Windows, SIGTERM is not available; use taskkill to kill process tree
+      spawn('taskkill', ['/pid', String(proc.pid), '/f', '/t'], { stdio: 'ignore' });
+    } else {
+      proc.kill('SIGTERM');
+    }
+  } catch (e) {
+    // Process may already be dead
+  }
+}
+
 async function runBenchmarkForServer(name, startCmd, startArgs, cwd, port) {
   console.log(`\n=== Starting ${name} on port ${port} ===`);
   const startTime = Date.now();
   
   const env = { ...process.env, ...baseEnv, PORT: String(port) };
-  const serverProc = spawn(startCmd, startArgs, { cwd, env, shell: true });
+  const serverProc = spawn(startCmd, startArgs, { cwd, env, shell: false });
   
-  const logStream = fs.createWriteStream(path.join(__dirname, `${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.log`));
-  serverProc.stdout.pipe(logStream);
-  serverProc.stderr.pipe(logStream);
+  // Log server output to both console and file
+  const logPath = path.join(__dirname, `${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.log`);
+  const logStream = fs.createWriteStream(logPath);
+  
+  serverProc.stdout.on('data', (data) => {
+    logStream.write(data);
+  });
+  serverProc.stderr.on('data', (data) => {
+    logStream.write(data);
+    // Also print stderr to help debug startup issues
+    process.stderr.write(`[${name} stderr] ${data}`);
+  });
+  
+  serverProc.on('error', (err) => {
+    console.error(`[${name}] Process error:`, err.message);
+  });
+  
+  serverProc.on('exit', (code, signal) => {
+    logStream.end();
+    console.log(`[${name}] Process exited (code: ${code}, signal: ${signal})`);
+  });
   
   try {
     await waitOn(port);
@@ -175,7 +208,7 @@ async function runBenchmarkForServer(name, startCmd, startArgs, cwd, port) {
     return { results, totalDuration };
   } finally {
     console.log(`Stopping ${name}...`);
-    serverProc.kill('SIGTERM');
+    killProcess(serverProc);
     await new Promise(r => setTimeout(r, 1000));
   }
 }
@@ -184,7 +217,7 @@ async function runBenchmarkForServer(name, startCmd, startArgs, cwd, port) {
 function runGoUnitTests() {
   return new Promise((resolve) => {
     console.log('\n=== Running Go Unit Tests ===');
-    const proc = spawn('go', ['test', './...', '-json'], { shell: true });
+    const proc = spawn('go', ['test', './...', '-json'], { shell: false });
     let stdout = '';
     
     proc.stdout.on('data', data => {
