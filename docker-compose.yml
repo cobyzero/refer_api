@@ -45,6 +45,7 @@ services:
       - uploads_data:/app/uploads
     networks:
       - refer_network
+      - dokploy-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -62,3 +63,5 @@ volumes:
 networks:
   refer_network:
     driver: bridge
+  dokploy-network:
+    external: true
