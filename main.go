@@ -93,7 +93,7 @@ func main() {
 
 	corsOrigins := os.Getenv("CORS_ORIGINS")
 	if corsOrigins == "" {
-		corsOrigins = "http://localhost:4200,https://refer.cobyzero.com"
+		corsOrigins = "http://localhost:4200,https://refer.cobyzero.com,https://refer-api.cobyzero.com"
 	}
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins,

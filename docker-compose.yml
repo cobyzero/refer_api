@@ -1,24 +1,26 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: refer_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME:-refer}
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    ports:
-      - "${DB_EXTERNAL_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-refer}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    networks:
-      - refer_network
+  # --- DB incluida en compose (comentada para usar DB externa en 5435) ---
+  # Para volver a usarla, descomenta este bloque y descomenta depends_on y volumen postgres_data
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: refer_postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: ${DB_NAME:-refer}
+  #     POSTGRES_USER: ${DB_USERNAME:-postgres}
+  #     POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+  #   ports:
+  #     - "${DB_EXTERNAL_PORT:-5432}:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-refer}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 20s
+  #   networks:
+  #     - refer_network
 
   app:
     build:
@@ -26,23 +28,25 @@ services:
       dockerfile: Dockerfile
     container_name: refer_api
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
     ports:
       - "${HOST_PORT:-3001}:${PORT:-3000}"
     env_file:
       - .env
     environment:
-      # Override DB_HOST to use docker service name when running in compose
-      DB_HOST: postgres
-      DB_PORT: 5432
+      # Usa DB_HOST/DB_PORT del Environment de Dokploy (ej. 149.202.62.87:5435 o host.docker.internal:5435)
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-5432}
       DB_SSLMODE: disable
       SEED_DB: ${SEED_DB:-false}
     volumes:
       - uploads_data:/app/uploads
     networks:
       - refer_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ || exit 1"]
       interval: 30s
@@ -50,8 +54,8 @@ services:
       retries: 3
 
 volumes:
-  postgres_data:
-    driver: local
+  # postgres_data:  # descomentar si usas postgres del compose
+  #   driver: local
   uploads_data:
     driver: local
 
