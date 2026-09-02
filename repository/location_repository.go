@@ -24,13 +24,13 @@ func NewLocationRepository(db *bun.DB) LocationRepository {
 
 func (r *locationRepository) FindAll() ([]models.Location, error) {
 	var locations []models.Location
-	err := r.db.NewSelect().Model(&locations).Where("isActive = ?", true).Scan(context.Background())
+	err := r.db.NewSelect().Model(&locations).Where("\"isActive\" = ?", true).Scan(context.Background())
 	return locations, err
 }
 
 func (r *locationRepository) FindByID(id string) (*models.Location, error) {
 	var location models.Location
-	err := r.db.NewSelect().Model(&location).Where("id = ? AND isActive = ?", id, true).Scan(context.Background())
+	err := r.db.NewSelect().Model(&location).Where("id = ? AND \"isActive\" = ?", id, true).Scan(context.Background())
 	if err != nil {
 		return nil, err
 	}

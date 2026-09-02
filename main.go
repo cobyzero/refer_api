@@ -33,6 +33,11 @@ func main() {
 	database.DB.RegisterModel((*models.UserRole)(nil))
 	database.DB.RegisterModel((*models.CartItemEnhancement)(nil))
 
+	// Auto-migrate tables (PostgreSQL - creates if not exists)
+	if err := database.Migrate(database.DB); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
+
 	// Optional Database Seeding
 	if os.Getenv("SEED_DB") == "true" {
 		log.Println("[Seed] Wiping database and seeding initial data...")
@@ -102,7 +107,7 @@ func main() {
 	app.All("/socket.io/*", adaptor.HTTPHandler(socketGateway.GetServer().ServeHandler(nil)))
 
 	// Setup Router Groups
-	api := app.Group("/api/v1")
+	api := app.Group("/api")
 
 	// Register Routes
 	routes.RegisterAuthRoutes(api, authHandler)

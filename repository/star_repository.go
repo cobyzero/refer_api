@@ -40,9 +40,9 @@ func (r *starRepository) GetStarBalance(userID string) (int, error) {
 		Total int `bun:"total"`
 	}
 	err := r.db.NewSelect().
-		TableExpr("star_transactions").
+		TableExpr("\"star_transactions\"").
 		ColumnExpr("COALESCE(SUM(stars), 0) AS total").
-		Where("userId = ?", userID).
+		Where("\"userId\" = ?", userID).
 		Scan(context.Background(), &result)
 	return result.Total, err
 }
@@ -50,7 +50,7 @@ func (r *starRepository) GetStarBalance(userID string) (int, error) {
 func (r *starRepository) FindHistory(userID string) ([]models.StarTransaction, error) {
 	var txs []models.StarTransaction
 	err := r.db.NewSelect().Model(&txs).
-		Where("userId = ?", userID).
+		Where("\"userId\" = ?", userID).
 		OrderExpr("date DESC").
 		Scan(context.Background())
 	return txs, err
@@ -58,7 +58,7 @@ func (r *starRepository) FindHistory(userID string) ([]models.StarTransaction, e
 
 func (r *starRepository) FindRewards() ([]models.Reward, error) {
 	var rewards []models.Reward
-	err := r.db.NewSelect().Model(&rewards).Where("isActive = ?", true).Scan(context.Background())
+	err := r.db.NewSelect().Model(&rewards).Where("\"isActive\" = ?", true).Scan(context.Background())
 	return rewards, err
 }
 
@@ -84,8 +84,8 @@ func (r *starRepository) CreateRedeemedReward(rr *models.RedeemedReward) error {
 func (r *starRepository) FindRedeemedRewards(userID string) ([]models.RedeemedReward, error) {
 	var rrs []models.RedeemedReward
 	err := r.db.NewSelect().Model(&rrs).
-		Where("userId = ?", userID).
-		OrderExpr("createdAt DESC").
+		Where("\"userId\" = ?", userID).
+		OrderExpr("\"createdAt\" DESC").
 		Scan(context.Background())
 	return rrs, err
 }
@@ -109,7 +109,7 @@ func (r *starRepository) GetTotalStarsAwarded() (int, error) {
 		Total int `bun:"total"`
 	}
 	err := r.db.NewSelect().
-		TableExpr("star_transactions").
+		TableExpr("\"star_transactions\"").
 		ColumnExpr("COALESCE(SUM(stars), 0) AS total").
 		Where("type = ?", "earn").
 		Scan(context.Background(), &result)
@@ -121,7 +121,7 @@ func (r *starRepository) GetTotalStarsRedeemed() (int, error) {
 		Total int `bun:"total"`
 	}
 	err := r.db.NewSelect().
-		TableExpr("star_transactions").
+		TableExpr("\"star_transactions\"").
 		ColumnExpr("COALESCE(SUM(ABS(stars)), 0) AS total").
 		Where("type = ?", "redeem").
 		Scan(context.Background(), &result)

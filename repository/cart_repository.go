@@ -30,7 +30,7 @@ func NewCartRepository(db *bun.DB) CartRepository {
 func (r *cartRepository) FindAllByUser(userID string) ([]models.CartItem, error) {
 	var items []models.CartItem
 	err := r.db.NewSelect().Model(&items).
-		Where("?TableAlias.userId = ?", userID).
+		Where("?TableAlias.\"userId\" = ?", userID).
 		Relation("Product").
 		Relation("Product.Category").
 		Relation("Product.SizeOptions").
@@ -54,7 +54,7 @@ func (r *cartRepository) Create(item *models.CartItem) error {
 
 		for _, enh := range enhancements {
 			if _, err := tx.ExecContext(ctx,
-				"INSERT IGNORE INTO cart_item_enhancements (cartItemId, enhancementId) VALUES (?, ?)",
+				"INSERT INTO \"cart_item_enhancements\" (\"cartItemId\", \"enhancementId\") VALUES (?, ?) ON CONFLICT DO NOTHING",
 				item.ID, enh.ID,
 			); err != nil {
 				return err
@@ -70,12 +70,12 @@ func (r *cartRepository) Delete(id, userID string) error {
 	ctx := context.Background()
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.ExecContext(ctx,
-			"DELETE FROM cart_item_enhancements WHERE cartItemId = ?", id,
+			"DELETE FROM \"cart_item_enhancements\" WHERE \"cartItemId\" = ?", id,
 		); err != nil {
 			return err
 		}
 		_, err := tx.NewDelete().Model((*models.CartItem)(nil)).
-			Where("id = ? AND userId = ?", id, userID).
+			Where("id = ? AND \"userId\" = ?", id, userID).
 			Exec(ctx)
 		return err
 	})
@@ -84,7 +84,7 @@ func (r *cartRepository) Delete(id, userID string) error {
 func (r *cartRepository) UpdateQuantity(id, userID string, quantity int) error {
 	_, err := r.db.NewUpdate().Model((*models.CartItem)(nil)).
 		Set("quantity = ?", quantity).
-		Where("id = ? AND userId = ?", id, userID).
+		Where("id = ? AND \"userId\" = ?", id, userID).
 		Exec(context.Background())
 	return err
 }
@@ -94,7 +94,7 @@ func (r *cartRepository) Clear(userID string) error {
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Get item IDs for this user
 		var ids []string
-		rows, err := tx.QueryContext(ctx, "SELECT id FROM cart_items WHERE userId = ?", userID)
+		rows, err := tx.QueryContext(ctx, "SELECT id FROM \"cart_items\" WHERE \"userId\" = ?", userID)
 		if err != nil {
 			return err
 		}
@@ -109,7 +109,7 @@ func (r *cartRepository) Clear(userID string) error {
 
 		if len(ids) > 0 {
 			if _, err := tx.ExecContext(ctx,
-				"DELETE FROM cart_item_enhancements WHERE cartItemId IN (?)",
+				"DELETE FROM \"cart_item_enhancements\" WHERE \"cartItemId\" IN (?)",
 				bun.In(ids),
 			); err != nil {
 				return err
@@ -117,7 +117,7 @@ func (r *cartRepository) Clear(userID string) error {
 		}
 
 		_, err = tx.NewDelete().Model((*models.CartItem)(nil)).
-			Where("userId = ?", userID).
+			Where("\"userId\" = ?", userID).
 			Exec(ctx)
 		return err
 	})
@@ -126,7 +126,7 @@ func (r *cartRepository) Clear(userID string) error {
 func (r *cartRepository) FindByIDAndUser(id, userID string) (*models.CartItem, error) {
 	var item models.CartItem
 	err := r.db.NewSelect().Model(&item).
-		Where("id = ? AND userId = ?", id, userID).
+		Where("id = ? AND \"userId\" = ?", id, userID).
 		Scan(context.Background())
 	if err != nil {
 		return nil, err

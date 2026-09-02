@@ -1,6 +1,6 @@
-# API Specification - refer_api (v1)
+# API Specification - refer_api
 
-**Base URL**: `/api/v1`
+**Base URL**: `/api`
 
 ---
 

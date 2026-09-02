@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode
+tmp
+node_modules
+npm-debug.log
+.DS_Store
+*.log
+*.md
+performance_comparison_results.*
+uploads/*
+!uploads/.gitkeep
+.env
+go_fiber.log
+nestjs.log
+/dist
+/coverage

@@ -75,7 +75,7 @@ func (r *userRepository) Create(user *models.User) error {
 
 		for _, role := range roles {
 			if _, err := tx.ExecContext(ctx,
-				"INSERT IGNORE INTO users_roles (usersId, rolesId) VALUES (?, ?)",
+				"INSERT INTO \"users_roles\" (\"usersId\", \"rolesId\") VALUES (?, ?) ON CONFLICT DO NOTHING",
 				user.ID, role.ID,
 			); err != nil {
 				return err
@@ -97,13 +97,13 @@ func (r *userRepository) Update(user *models.User) error {
 			return err
 		}
 
-		if _, err := tx.ExecContext(ctx, "DELETE FROM users_roles WHERE usersId = ?", user.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM \"users_roles\" WHERE \"usersId\" = ?", user.ID); err != nil {
 			return err
 		}
 
 		for _, role := range roles {
 			if _, err := tx.ExecContext(ctx,
-				"INSERT IGNORE INTO users_roles (usersId, rolesId) VALUES (?, ?)",
+				"INSERT INTO \"users_roles\" (\"usersId\", \"rolesId\") VALUES (?, ?) ON CONFLICT DO NOTHING",
 				user.ID, role.ID,
 			); err != nil {
 				return err
@@ -118,7 +118,7 @@ func (r *userRepository) Update(user *models.User) error {
 func (r *userRepository) Delete(id string) error {
 	ctx := context.Background()
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM users_roles WHERE usersId = ?", id); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM \"users_roles\" WHERE \"usersId\" = ?", id); err != nil {
 			return err
 		}
 		_, err := tx.NewDelete().Model((*models.User)(nil)).Where("id = ?", id).Exec(ctx)
@@ -159,9 +159,9 @@ func (r *userRepository) GetStarBalance(userID string) (int, error) {
 		Total int `bun:"total"`
 	}
 	err := r.db.NewSelect().
-		TableExpr("star_transactions").
+		TableExpr("\"star_transactions\"").
 		ColumnExpr("COALESCE(SUM(stars), 0) AS total").
-		Where("userId = ?", userID).
+		Where("\"userId\" = ?", userID).
 		Scan(context.Background(), &result)
 	return result.Total, err
 }

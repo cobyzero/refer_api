@@ -97,7 +97,7 @@ func (s *dashboardService) GetAdminSummary() (*models.AdminSummaryResponse, erro
 	var orders []models.Order
 	if err := s.db.NewSelect().Model(&orders).
 		Relation("User").
-		OrderExpr("?TableAlias.createdAt DESC").
+		OrderExpr("?TableAlias.\"createdAt\" DESC").
 		Scan(context.Background()); err != nil {
 		return nil, err
 	}

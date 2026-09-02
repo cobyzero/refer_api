@@ -39,10 +39,12 @@ lerna-debug.log*
 # Database
 *.sqlite
 /test-reports
-/uploads
+/uploads/*
+!/uploads/.gitkeep
 
 # Go build output
 /main
+/server
 *.exe
 *.exe~
 *.dll
@@ -52,6 +54,14 @@ go.work
 /tmp
 build-errors.log
 
+# Go coverage
+*.out
 
-/v1/node_modules
-/v1/dist
+# Performance results (generated)
+performance_comparison_results.html
+performance_comparison_results.md
+go_fiber.log
+nestjs.log
+
+# Docker
+.docker/

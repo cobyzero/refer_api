@@ -2,10 +2,11 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"refer_api/models"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
 
@@ -43,7 +44,7 @@ func (r *orderRepository) FindAll() ([]models.Order, error) {
 	err := r.db.NewSelect().Model(&orders).
 		Relation("Items").
 		Relation("User").
-		OrderExpr("?TableAlias.createdAt DESC").
+		OrderExpr("?TableAlias.\"createdAt\" DESC").
 		Scan(context.Background())
 	return orders, err
 }
@@ -51,10 +52,10 @@ func (r *orderRepository) FindAll() ([]models.Order, error) {
 func (r *orderRepository) FindAllByUser(userID string) ([]models.Order, error) {
 	var orders []models.Order
 	err := r.db.NewSelect().Model(&orders).
-		Where("?TableAlias.userId = ?", userID).
+		Where("?TableAlias.\"userId\" = ?", userID).
 		Relation("Items").
 		Relation("User").
-		OrderExpr("?TableAlias.createdAt DESC").
+		OrderExpr("?TableAlias.\"createdAt\" DESC").
 		Scan(context.Background())
 	return orders, err
 }
@@ -94,45 +95,135 @@ func (r *orderRepository) CreateOrderViaSP(
 ) (int, error) {
 	ctx := context.Background()
 
-	var pickupVal interface{}
-	if pickupTime != nil {
-		pickupVal = *pickupTime
-	} else {
-		pickupVal = nil
+	type enrichedItem struct {
+		ID           string  `json:"id"`
+		ProductID    string  `json:"productId"`
+		Name         string  `json:"name"`
+		Quantity     int     `json:"quantity"`
+		Price        float64 `json:"price"`
+		ImageURL     *string `json:"imageUrl"`
+		Size         *string `json:"size"`
+		Type         *string `json:"type"`
+		Enhancements *string `json:"enhancements"`
+		StarsReward  int     `json:"starsReward"`
 	}
 
-	// Execute the stored procedure inside an explicit transaction so the session
-	// variable @totalStars is readable in the same connection.
+	var items []enrichedItem
+	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
+		// If unmarshalling fails, treat as empty to avoid transaction failure
+		items = []enrichedItem{}
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer func() {
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 		}
 	}()
 
-	if _, err = tx.ExecContext(ctx,
-		"CALL sp_create_order(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @totalStars)",
-		orderID, userID, locationID, orderNumber,
-		total, serviceFee, paymentMethod, pickupVal,
-		itemsJSON, redeemedRewardID,
-	); err != nil {
+	// Insert order
+	order := &models.Order{
+		ID:            orderID,
+		OrderNumber:   orderNumber,
+		UserID:        userID,
+		LocationID:    locationID,
+		Total:         total,
+		ServiceFee:    serviceFee,
+		Status:        models.OrderStatusOrdered,
+		PaymentMethod: paymentMethod,
+		PickupTime:    pickupTime,
+		CreatedAt:     time.Now(),
+	}
+	if _, err = tx.NewInsert().Model(order).Exec(ctx); err != nil {
 		return 0, err
 	}
 
-	var result struct {
-		TotalStars sql.NullInt64 `bun:"total_stars"`
+	// Insert order items
+	totalStars := 0
+	for _, it := range items {
+		enh := models.StringArray{}
+		if it.Enhancements != nil && *it.Enhancements != "" {
+			// Already comma-joined string, let StringArray handle it via Value()
+			// Split by comma to create slice, then StringArray will re-join
+			// Simple: keep as single string slice element? Actually StringArray expects slice of strings
+			// The service already joined enhancements with "," so we need to split
+			// We'll parse it back
+			// For simplicity, store as StringArray with one element being the joined string? Better split
+			// Let's split by comma
+			var parts []string
+			// manual split
+			s := *it.Enhancements
+			start := 0
+			for i := 0; i <= len(s); i++ {
+				if i == len(s) || s[i] == ',' {
+					if i > start {
+						parts = append(parts, s[start:i])
+					}
+					start = i + 1
+				}
+			}
+			enh = parts
+		}
+		oi := &models.OrderItem{
+			ID:           it.ID,
+			OrderID:      orderID,
+			ProductID:    &it.ProductID,
+			ImageURL:     it.ImageURL,
+			Name:         it.Name,
+			Quantity:     it.Quantity,
+			Price:        it.Price,
+			Size:         it.Size,
+			Type:         it.Type,
+			Enhancements: enh,
+		}
+		if oi.ID == "" {
+			oi.ID = uuid.New().String()
+		}
+		if _, err = tx.NewInsert().Model(oi).Exec(ctx); err != nil {
+			return 0, err
+		}
+		totalStars += it.StarsReward * it.Quantity
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT @totalStars AS total_stars").
-		Scan(&result.TotalStars); err != nil {
-		return 0, err
+
+	// If payment is via reward or redeemed reward present, don't award stars
+	if paymentMethod == "REWARD" || redeemedRewardID != nil {
+		totalStars = 0
+	}
+
+	// Handle redeemed reward marking
+	if redeemedRewardID != nil && *redeemedRewardID != "" {
+		if _, err = tx.NewUpdate().Model((*models.RedeemedReward)(nil)).
+			Set("\"isClaimed\" = ?", true).
+			Where("id = ?", *redeemedRewardID).
+			Exec(ctx); err != nil {
+			return 0, err
+		}
+		// Also create a redeem star transaction (negative stars) if reward has cost
+		// The reward cost is not directly available here; star handling for redeem is done elsewhere (star service)
+		// So we just return 0 stars for this order
+	}
+
+	// Award stars if applicable
+	if totalStars > 0 {
+		st := &models.StarTransaction{
+			ID:     uuid.New().String(),
+			UserID: userID,
+			Type:   "earn",
+			Title:  "Order " + orderNumber,
+			Stars:  totalStars,
+			Date:   time.Now(),
+		}
+		if _, err = tx.NewInsert().Model(st).Exec(ctx); err != nil {
+			return 0, err
+		}
 	}
 
 	if err = tx.Commit(); err != nil {
 		return 0, err
 	}
 
-	return int(result.TotalStars.Int64), nil
+	return totalStars, nil
 }

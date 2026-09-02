@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/mysqldialect"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 var (
@@ -43,19 +43,21 @@ func connect() error {
 		return fmt.Errorf("database environment variables are missing (DB_USERNAME, DB_HOST, DB_NAME)")
 	}
 
-	// Default to 3306 if DB_PORT is not set
+	// Default to 5432 if DB_PORT is not set
 	if dbPort == "" {
-		dbPort = "3306"
+		dbPort = "5432"
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		dbUser, dbPass, dbHost, dbPort, dbName,
+	sslMode := os.Getenv("DB_SSLMODE")
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		dbUser, dbPass, dbHost, dbPort, dbName, sslMode,
 	)
 
-	sqldb, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
-	}
+	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
 
 	// Configure connection pool
 	maxOpenConns := getEnvInt("DB_MAX_OPEN_CONNS", 25)
@@ -66,7 +68,7 @@ func connect() error {
 	sqldb.SetMaxIdleConns(maxIdleConns)
 	sqldb.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
 
-	DB = bun.NewDB(sqldb, mysqldialect.New())
+	DB = bun.NewDB(sqldb, pgdialect.New())
 
 	// Verify connectivity with a timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

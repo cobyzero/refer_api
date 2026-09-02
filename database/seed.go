@@ -18,15 +18,14 @@ import (
 func Seed(db *bun.DB) error {
 	ctx := context.Background()
 
-	// Disable foreign keys temporarily
-	if _, err := db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0;"); err != nil {
-		return fmt.Errorf("failed to disable foreign keys: %w", err)
-	}
+	// Disable FK checks for PostgreSQL (requires superuser / table owner; fallback gracefully)
+	// Using TRUNCATE ... CASCADE is preferred for Postgres
+	_, _ = db.ExecContext(ctx, "SET session_replication_role = 'replica'")
 	defer func() {
-		_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1;")
+		_, _ = db.ExecContext(ctx, "SET session_replication_role = 'origin'")
 	}()
 
-	// Truncate/delete all tables
+	// Truncate all tables (CASCADE handles FK dependencies)
 	tables := []string{
 		"users_roles", "roles", "star_transactions", "redeemed_rewards", "rewards",
 		"cart_item_enhancements", "cart_items", "order_items", "orders",
@@ -34,8 +33,16 @@ func Seed(db *bun.DB) error {
 		"seasonal_products", "products", "product_categories", "locations", "users",
 	}
 	for _, table := range tables {
-		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
-			return fmt.Errorf("failed to delete from %s: %w", table, err)
+		// Use TRUNCATE CASCADE for Postgres; fallback to DELETE if table missing
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`TRUNCATE TABLE "%s" CASCADE`, table)); err != nil {
+			// Fallback: DELETE (handles non-existing table gracefully)
+			if _, delErr := db.ExecContext(ctx, "DELETE FROM \""+table+"\""); delErr != nil {
+				// If both fail, check if table simply doesn't exist yet (first run) -> ignore
+				// But if it's a real error, return it
+				if !strings.Contains(err.Error(), "does not exist") && !strings.Contains(delErr.Error(), "does not exist") {
+					return fmt.Errorf("failed to clean %s: %w (truncate err: %v)", table, delErr, err)
+				}
+			}
 		}
 	}
 

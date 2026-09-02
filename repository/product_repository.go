@@ -43,7 +43,7 @@ func (r *productRepository) withRelations(q *bun.SelectQuery) *bun.SelectQuery {
 func (r *productRepository) FindAll() ([]models.Product, error) {
 	var products []models.Product
 	err := r.withRelations(r.db.NewSelect().Model(&products)).
-		OrderExpr("?TableAlias.createdAt DESC").
+		OrderExpr("?TableAlias.\"createdAt\" DESC").
 		Scan(context.Background())
 	return products, err
 }
@@ -62,7 +62,7 @@ func (r *productRepository) FindByID(id string) (*models.Product, error) {
 func (r *productRepository) FindTopRated() ([]models.Product, error) {
 	var products []models.Product
 	err := r.withRelations(r.db.NewSelect().Model(&products)).
-		Where("?TableAlias.isAvailable = ?", true).
+		Where("?TableAlias.\"isAvailable\" = ?", true).
 		OrderExpr("?TableAlias.rating DESC").
 		Limit(5).
 		Scan(context.Background())
@@ -122,17 +122,17 @@ func (r *productRepository) Search(query string, categoryIdOrName string) ([]mod
 	var products []models.Product
 
 	q := r.withRelations(r.db.NewSelect().Model(&products)).
-		Where("?TableAlias.isAvailable = ?", true)
+		Where("?TableAlias.\"isAvailable\" = ?", true)
 
 	if query != "" {
-		q = q.Where("?TableAlias.name LIKE ?", "%"+query+"%")
+		q = q.Where("?TableAlias.name ILIKE ?", "%"+query+"%")
 	}
 
 	if categoryIdOrName != "" && categoryIdOrName != "All" {
 		if len(categoryIdOrName) == 36 {
-			q = q.Where("?TableAlias.categoryId = ?", categoryIdOrName)
+			q = q.Where("?TableAlias.\"categoryId\" = ?", categoryIdOrName)
 		} else {
-			q = q.Join("JOIN product_categories AS cat ON cat.id = ?TableAlias.categoryId").
+			q = q.Join("JOIN product_categories AS cat ON cat.id = ?TableAlias.\"categoryId\"").
 				Where("cat.name = ?", categoryIdOrName)
 		}
 	}

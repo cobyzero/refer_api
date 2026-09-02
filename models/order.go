@@ -87,5 +87,5 @@ type OrderItem struct {
 	Price        float64     `bun:"price,notnull" json:"price"`
 	Size         *string     `bun:"size" json:"size"`
 	Type         *string     `bun:"type" json:"type"`
-	Enhancements StringArray `bun:"enhancements" json:"enhancements"`
+	Enhancements StringArray `bun:"enhancements,type:text" json:"enhancements"`
 }
