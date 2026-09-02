@@ -91,8 +91,15 @@ func main() {
 
 	app := fiber.New()
 
+	corsOrigins := os.Getenv("CORS_ORIGINS")
+	if corsOrigins == "" {
+		corsOrigins = "http://localhost:4200,https://refer.cobyzero.com"
+	}
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://localhost:4200",
+		AllowOrigins:     corsOrigins,
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
+		AllowCredentials: true,
 	}))
 
 	// Serve uploaded files statically
