@@ -38,13 +38,9 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	// Optional Database Seeding
-	if os.Getenv("SEED_DB") == "true" {
-		log.Println("[Seed] Wiping database and seeding initial data...")
-		if err := database.Seed(database.DB); err != nil {
-			log.Fatalf("[Seed] Seeding failed: %v", err)
-		}
-		log.Println("[Seed] Seeding completed successfully!")
+	// Ensure single admin user exists (admin@admin.com / admin123@) — created once, idempotent
+	if err := database.EnsureAdmin(database.DB); err != nil {
+		log.Fatalf("Failed to ensure admin user: %v", err)
 	}
 
 	// Initialize SocketGateway

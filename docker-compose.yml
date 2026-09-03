@@ -40,7 +40,6 @@ services:
       DB_HOST: ${DB_HOST:-host.docker.internal}
       DB_PORT: ${DB_PORT:-5432}
       DB_SSLMODE: disable
-      SEED_DB: ${SEED_DB:-false}
     volumes:
       - uploads_data:/app/uploads
     networks:
