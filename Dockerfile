@@ -23,7 +23,7 @@ FROM alpine:3.20
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata wget
 
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
