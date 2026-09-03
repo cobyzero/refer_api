@@ -37,8 +37,8 @@ USER appuser
 
 EXPOSE 3000
 
-# Healthcheck hits the root endpoint
+# Healthcheck hits the health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/ || exit 1
+  CMD wget -qO- http://localhost:${PORT:-3000}/health || wget -qO- http://localhost:3000/health || exit 1
 
 CMD ["./server"]

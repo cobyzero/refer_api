@@ -45,11 +45,11 @@ services:
       - uploads_data:/app/uploads
     networks:
       - refer_network
-      # - dokploy-network
+      - dokploy-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -77,5 +77,5 @@ volumes:
 networks:
   refer_network:
     driver: bridge
-  # dokploy-network:
-  #   external: true
+  dokploy-network:
+    external: true
