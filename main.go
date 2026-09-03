@@ -105,9 +105,8 @@ func main() {
 	// Serve uploaded files statically
 	app.Static("/uploads", "./uploads")
 
-	// Base Hello World route
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, World! Welcome to the Fiber API with Bun ORM (Layered Architecture).")
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
 	// Route Socket.io requests using adaptor

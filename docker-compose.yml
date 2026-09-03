@@ -45,7 +45,7 @@ services:
       - uploads_data:/app/uploads
     networks:
       - refer_network
-      - dokploy-network
+      # - dokploy-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -53,6 +53,20 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - tmp/
+            - uploads/
+            - node_modules/
+            - .git/
+        - action: sync
+          path: ./uploads
+          target: /app/uploads
+          ignore:
+            - "*.tmp"
 
 volumes:
   # postgres_data:  # descomentar si usas postgres del compose
@@ -63,5 +77,5 @@ volumes:
 networks:
   refer_network:
     driver: bridge
-  dokploy-network:
-    external: true
+  # dokploy-network:
+  #   external: true

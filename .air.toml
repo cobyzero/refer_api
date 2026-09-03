@@ -6,15 +6,15 @@ tmp_dir = "tmp"
   args_bin = []
   bin = "./tmp/main"
   cmd = "go build -o ./tmp/main ."
-  delay = 1000
-  exclude_dir = ["assets", "tmp", "vendor", "node_modules"]
+  delay = 500
+  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "uploads", ".git", ".vscode"]
   exclude_file = []
   exclude_regex = ["_test.go"]
   exclude_unchanged = false
   follow_symlink = false
   full_bin = ""
   include_dir = []
-  include_ext = ["go", "tpl", "html", "toml"]
+  include_ext = ["go", "tpl", "html", "toml", "yaml", "yml", "json", "env"]
   include_file = []
   kill_delay = "0s"
   log = "build-errors.log"
@@ -23,7 +23,7 @@ tmp_dir = "tmp"
   rerun = false
   rerun_delay = 500
   send_interrupt = false
-  stop_on_error = true
+  stop_on_error = false
 
 [color]
   app = ""

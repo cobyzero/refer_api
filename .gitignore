@@ -52,6 +52,7 @@ lerna-debug.log*
 *.dylib
 go.work
 /tmp
+/bin
 build-errors.log
 
 # Go coverage
@@ -65,3 +66,8 @@ nestjs.log
 
 # Docker
 .docker/
+
+# Astro landing
+landing/node_modules
+landing/dist
+landing/.astro
