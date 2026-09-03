@@ -29,7 +29,6 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY --from=builder /app/server ./server
-COPY --from=builder /app/public ./public
 
 # Copy necessary runtime dirs (uploads)
 RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
