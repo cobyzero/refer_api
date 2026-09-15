@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -87,10 +88,32 @@ func (s *paymentService) CreatePaymentIntent(amount float64, currency string) (s
 
 	pi, err := paymentintent.New(params)
 	if err != nil {
+		// Client-correctable Stripe rejections (amount below the currency
+		// minimum, unsupported currency...) are 400, not 500 — and the raw
+		// Stripe payload (request_id, decline internals) never reaches the
+		// client. Only the code + a sanitized message are logged server-side.
+		var stripeErr *stripe.Error
+		if errors.As(err, &stripeErr) && stripeErr.Type == stripe.ErrorTypeInvalidRequest {
+			log.Printf("[payments] stripe rejected intent amount=%.2f currency=%s code=%s", amount, currency, stripeErr.Code)
+			return "", "", fmt.Errorf("%w: %s", ErrInvalidPayment, friendlyStripeRejection(stripeErr, amount, currency))
+		}
 		return "", "", err
 	}
 
 	return pi.ClientSecret, pi.ID, nil
+}
+
+// friendlyStripeRejection turns a Stripe invalid_request_error into an
+// actionable, leak-free message. Never echo stripeErr.Error() (raw JSON).
+func friendlyStripeRejection(stripeErr *stripe.Error, amount float64, currency string) string {
+	if stripeErr.Code == "amount_too_small" {
+		return fmt.Sprintf("amount %.2f %s is below Stripe's minimum charge for this currency — check catalog prices", amount, strings.ToUpper(currency))
+	}
+	msg := strings.TrimSpace(stripeErr.Msg)
+	if msg == "" {
+		msg = "payment rejected for this amount/currency"
+	}
+	return msg
 }
 
 // VerifyPaymentSucceeded retrieves the intent from Stripe and reports whether
@@ -114,6 +137,13 @@ func VerifyPaymentSucceeded(intentID string) (bool, error) {
 	stripe.Key = stripeKey
 	pi, err := paymentintent.Get(intentID, nil)
 	if err != nil {
+		// Unknown/invalid intent IDs are client-state errors, not server
+		// outages — and the raw Stripe payload stays server-side.
+		var stripeErr *stripe.Error
+		if errors.As(err, &stripeErr) && stripeErr.Type == stripe.ErrorTypeInvalidRequest {
+			log.Printf("[payments] stripe lookup failed intent=%s code=%s", intentID, stripeErr.Code)
+			return false, ErrInvalidPayment
+		}
 		return false, err
 	}
 	return pi.Status == stripe.PaymentIntentStatusSucceeded, nil

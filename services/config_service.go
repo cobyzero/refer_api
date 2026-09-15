@@ -30,6 +30,11 @@ const DefaultServiceFeeRate = 0.0
 // smtp_enabled is the master kill-switch for auth emails; the two granular
 // flags control registro (signup verification) y olvido-contraseña (recovery)
 // individually. Effective = master && granular. Defaults true (current behavior).
+//
+// SettingDirectConfirmEnabled gates the no-Stripe order confirmation path
+// (testing only, toggled from the refer_web settings module). Default false:
+// ConfirmOrder fails closed unless the operator explicitly enables it.
+// NEVER true in prod — it settles orders without charging.
 const (
 	SettingSmtpEnabled           = "smtp_enabled"
 	SettingSignupEmailEnabled    = "signup_email_enabled"
@@ -37,6 +42,9 @@ const (
 	DefaultSmtpEnabled           = true
 	DefaultSignupEmailEnabled    = true
 	DefaultRecoveryEmailEnabled  = true
+
+	SettingDirectConfirmEnabled  = "direct_confirm_enabled"
+	DefaultDirectConfirmEnabled  = false
 )
 
 // ErrCurrencyInvalid is returned when the currency code is not supported.
@@ -66,6 +74,8 @@ type ConfigService interface {
 	// UpdateEmailSettings upserts the SMTP/auth-email toggles. Any nil pointer
 	// is left untouched (partial update desde el módulo de configuraciones).
 	UpdateEmailSettings(smtpEnabled, signupEnabled, recoveryEnabled *bool) (map[string]string, error)
+	// UpdateDirectConfirm upserts the testing-only direct-confirm toggle.
+	UpdateDirectConfirm(enabled bool) (map[string]string, error)
 }
 
 type configService struct {
@@ -93,6 +103,7 @@ func (s *configService) GetSettings() (map[string]string, error) {
 		SettingSmtpEnabled:          strconv.FormatBool(DefaultSmtpEnabled),
 		SettingSignupEmailEnabled:   strconv.FormatBool(DefaultSignupEmailEnabled),
 		SettingRecoveryEmailEnabled: strconv.FormatBool(DefaultRecoveryEmailEnabled),
+		SettingDirectConfirmEnabled: strconv.FormatBool(DefaultDirectConfirmEnabled),
 	}
 	rows, err := s.configRepo.FindAll()
 	if err != nil {
@@ -116,6 +127,7 @@ func (s *configService) GetSettings() (map[string]string, error) {
 	settings[SettingSmtpEnabled] = sanitizeBool(settings[SettingSmtpEnabled], DefaultSmtpEnabled)
 	settings[SettingSignupEmailEnabled] = sanitizeBool(settings[SettingSignupEmailEnabled], DefaultSignupEmailEnabled)
 	settings[SettingRecoveryEmailEnabled] = sanitizeBool(settings[SettingRecoveryEmailEnabled], DefaultRecoveryEmailEnabled)
+	settings[SettingDirectConfirmEnabled] = sanitizeBool(settings[SettingDirectConfirmEnabled], DefaultDirectConfirmEnabled)
 	// Stored versions always win over env seeds; sanitize in case they were
 	// written outside the validated path, keeping min <= version coherent.
 	settings[SettingAppVersion] = sanitizeVersion(settings[SettingAppVersion], envVersion)
@@ -224,6 +236,23 @@ func (s *configService) UpdateEmailSettings(smtpEnabled, signupEnabled, recovery
 	}
 	InvalidateSettingsCache()
 	return s.GetSettings()
+}
+
+// UpdateDirectConfirm upserts the testing-only direct-confirm toggle.
+// Fail-closed default (false); the operator enables it from refer_web
+// settings only for local/testing stacks. Never true in prod.
+func (s *configService) UpdateDirectConfirm(enabled bool) (map[string]string, error) {
+	if _, err := s.configRepo.Upsert(SettingDirectConfirmEnabled, strconv.FormatBool(enabled)); err != nil {
+		return nil, err
+	}
+	InvalidateSettingsCache()
+	return s.GetSettings()
+}
+
+// DirectConfirmEnabled reports whether the operator allowed no-Stripe order
+// confirmation (testing only, default false). Fail-closed on any doubt.
+func DirectConfirmEnabled(settings map[string]string) bool {
+	return parseBoolSetting(settings, SettingDirectConfirmEnabled, DefaultDirectConfirmEnabled)
 }
 
 // sanitizeBool normalizes a stored bool string, falling back to def.

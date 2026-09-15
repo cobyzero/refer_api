@@ -42,6 +42,10 @@ func (h *ConfigHandler) GetConfig(c *fiber.Ctx) error {
 			"smtpEnabled":          services.SmtpEnabled(settings),
 			"signupEmailEnabled":   services.SignupEmailEnabled(settings),
 			"recoveryEmailEnabled": services.RecoveryEmailEnabled(settings),
+			// Testing only: the mobile app may skip the Stripe sheet and
+			// confirm directly ONLY when the operator enabled it here.
+			// Default false; never true in prod.
+			"directConfirmEnabled": services.DirectConfirmEnabled(settings),
 		},
 		"endpoints": fiber.Map{
 			"termsUrl":   "https://example.com/terms",
@@ -54,8 +58,8 @@ func (h *ConfigHandler) GetConfig(c *fiber.Ctx) error {
 
 // UpdateConfig upserts operator-controlled settings. Accepts any subset of
 // currency, taxEnabled, taxRate, serviceFeeRate, version, minVersion,
-// smtpEnabled, signupEmailEnabled y recoveryEmailEnabled;
-// only present fields are updated.
+// smtpEnabled, signupEmailEnabled, recoveryEmailEnabled y directConfirmEnabled;
+// only present fields are updated. ADMIN only (see routes).
 func (h *ConfigHandler) UpdateConfig(c *fiber.Ctx) error {
 	var body struct {
 		Currency             *string  `json:"currency"`
@@ -67,6 +71,7 @@ func (h *ConfigHandler) UpdateConfig(c *fiber.Ctx) error {
 		SmtpEnabled          *bool    `json:"smtpEnabled"`
 		SignupEmailEnabled   *bool    `json:"signupEmailEnabled"`
 		RecoveryEmailEnabled *bool    `json:"recoveryEmailEnabled"`
+		DirectConfirmEnabled *bool    `json:"directConfirmEnabled"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
@@ -134,7 +139,14 @@ func (h *ConfigHandler) UpdateConfig(c *fiber.Ctx) error {
 		}
 	}
 
-	middleware.AttachAudit(c, "config.update", "config", "", map[string]interface{}{"currency": body.Currency, "taxEnabled": body.TaxEnabled, "taxRate": body.TaxRate, "serviceFeeRate": body.ServiceFeeRate, "version": body.Version, "minVersion": body.MinVersion, "smtpEnabled": body.SmtpEnabled, "signupEmailEnabled": body.SignupEmailEnabled, "recoveryEmailEnabled": body.RecoveryEmailEnabled})
+	if body.DirectConfirmEnabled != nil {
+		settings, err = h.configService.UpdateDirectConfirm(*body.DirectConfirmEnabled)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+		}
+	}
+
+	middleware.AttachAudit(c, "config.update", "config", "", map[string]interface{}{"currency": body.Currency, "taxEnabled": body.TaxEnabled, "taxRate": body.TaxRate, "serviceFeeRate": body.ServiceFeeRate, "version": body.Version, "minVersion": body.MinVersion, "smtpEnabled": body.SmtpEnabled, "signupEmailEnabled": body.SignupEmailEnabled, "recoveryEmailEnabled": body.RecoveryEmailEnabled, "directConfirmEnabled": body.DirectConfirmEnabled})
 	return c.JSON(fiber.Map{"settings": settings})
 }
 

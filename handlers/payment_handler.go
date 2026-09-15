@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"strings"
 
 	"refer_api/middleware"
 	"refer_api/models"
@@ -56,7 +57,10 @@ func (h *PaymentHandler) CreatePaymentIntent(c *fiber.Ctx) error {
 	clientSecret, intentID, err := h.paymentService.CreatePaymentIntent(order.Total, body.Currency)
 	if err != nil {
 		if errors.Is(err, services.ErrInvalidPayment) {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+			// Mensaje para el usuario final: sin el prefijo técnico
+			// "invalid payment" (eso queda en el log del servidor).
+			msg := strings.TrimPrefix(err.Error(), services.ErrInvalidPayment.Error()+": ")
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": msg})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}

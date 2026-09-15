@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"math/big"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -516,8 +518,60 @@ func (s *orderService) computeEarnStars(items []models.OrderItem) int {
 	return total
 }
 
+// directConfirmAllowed reports whether the operator enabled the testing-only
+// no-Stripe confirmation path (app_settings direct_confirm_enabled, toggled
+// from refer_web settings). Fail-closed: nil repo, read errors or any doubt
+// deny the bypass. Legacy ALLOW_UNVERIFIED_PAYMENTS=true env also allows it
+// (loudly logged at the use site); the settings flag is the supported path.
+func (s *orderService) directConfirmAllowed() bool {
+	// Legacy escape hatch for local stacks (deprecated in favor of the
+	// settings flag; never set in prod).
+	if os.Getenv("ALLOW_UNVERIFIED_PAYMENTS") == "true" {
+		log.Printf("[order] WARNING: ALLOW_UNVERIFIED_PAYMENTS=true, direct confirm allowed without Stripe")
+		return true
+	}
+	if s.configRepo == nil {
+		return false
+	}
+	settings, err := NewConfigService(s.configRepo).GetSettings()
+	if err != nil {
+		return false
+	}
+	return DirectConfirmEnabled(settings)
+}
+
+// settlePendingDirect marks a PENDING_PAYMENT order as paid without Stripe.
+// Caller must have verified directConfirmAllowed() first.
+func (s *orderService) settlePendingDirect(orderID, userID string) (*models.Order, error) {
+	order, err := s.orderRepo.FindByID(orderID)
+	if err != nil {
+		return nil, err
+	}
+	stars := s.computeEarnStars(order.Items)
+	if err := s.orderRepo.MarkPaidWithStars(orderID, order.UserID, stars, "Order "+order.OrderNumber); err != nil {
+		if errors.Is(err, repository.ErrOrderNotPending) {
+			return nil, invalidOrder("order cannot be confirmed")
+		}
+		return nil, err
+	}
+	fmt.Printf("[order] WARNING: direct-confirmed %s user=%s total=%.2f stars=%d (no Stripe verification)\n", order.OrderNumber, order.UserID, order.Total, stars)
+
+	fullOrder, err := s.orderRepo.FindByID(orderID)
+	if err != nil {
+		return nil, err
+	}
+	if gateway.Instance != nil {
+		gateway.Instance.SendNewOrderNotification(fullOrder)
+		gateway.Instance.SendOrderStatusUpdate(fullOrder.UserID, fullOrder)
+	}
+	return fullOrder, nil
+}
+
 // ConfirmOrder settles a pending order after verifying the Stripe intent as
 // succeeded. Client claims of "I paid" are never trusted on their own.
+// Testing path: when the order carries no payment intent, it settles only if
+// the operator enabled direct_confirm_enabled (or legacy env) — the decision
+// lives server-side, never in a client isDev flag.
 func (s *orderService) ConfirmOrder(orderID, userID string, roles []string) (*models.Order, error) {
 	order, err := s.loadOwnedForPayment(orderID, userID, roles)
 	if err != nil {
@@ -531,10 +585,18 @@ func (s *orderService) ConfirmOrder(orderID, userID string, roles []string) (*mo
 		intentID = *order.PaymentIntentID
 	}
 	if intentID == "" {
-		return nil, invalidOrder("payment not initialized")
+		if !s.directConfirmAllowed() {
+			return nil, invalidOrder("payment not initialized")
+		}
+		return s.settlePendingDirect(orderID, userID)
 	}
 	verified, err := VerifyPaymentSucceeded(intentID)
 	if err != nil {
+		// Invalid/unknown intents are broken client state (409), not
+		// server outages (500).
+		if errors.Is(err, ErrInvalidPayment) {
+			return nil, invalidOrder("payment not completed")
+		}
 		return nil, err
 	}
 	if !verified {
