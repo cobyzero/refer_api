@@ -56,7 +56,7 @@ func (r *userRepository) FindByID(id string) (*models.User, error) {
 }
 
 func (r *userRepository) FindAll() ([]models.User, error) {
-	var users []models.User
+	users := []models.User{}
 	err := r.db.NewSelect().Model(&users).
 		Relation("Roles").
 		Scan(context.Background())
@@ -144,7 +144,7 @@ func (r *userRepository) FindRoleByName(name string) (*models.Role, error) {
 }
 
 func (r *userRepository) FindRolesByNames(names []string) ([]models.Role, error) {
-	var roles []models.Role
+	roles := []models.Role{}
 	err := r.db.NewSelect().Model(&roles).Where("name IN (?)", bun.In(names)).Scan(context.Background())
 	return roles, err
 }

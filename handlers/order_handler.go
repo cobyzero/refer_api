@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"errors"
+
+	"refer_api/middleware"
 	"refer_api/models"
 	"refer_api/services"
 
@@ -17,7 +20,8 @@ func NewOrderHandler(orderService services.OrderService) *OrderHandler {
 	return &OrderHandler{orderService: orderService}
 }
 
-// Create places a new order.
+// Create places a new order. Totals are computed server-side from the DB
+// catalog; client totals are ignored for charging (fraud telemetry only).
 func (h *OrderHandler) Create(c *fiber.Ctx) error {
 	userID := c.Locals("userId").(string)
 
@@ -25,12 +29,22 @@ func (h *OrderHandler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
 	}
+	clientTotal, _ := body["total"].(float64)
 
 	order, err := h.orderService.Create(userID, body)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidOrder) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
 
+	meta := map[string]interface{}{"total": order.Total}
+	if diff := clientTotal - order.Total; diff > 0.01 || diff < -0.01 {
+		meta["clientTotal"] = clientTotal
+		meta["totalMismatch"] = true
+	}
+	middleware.AttachAudit(c, "order.create", "order", order.ID, meta)
 	return c.Status(fiber.StatusCreated).JSON(order)
 }
 
@@ -50,6 +64,54 @@ func (h *OrderHandler) UpdateStatus(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
 
+	middleware.AttachAudit(c, "order.status", "order", id, map[string]interface{}{"status": body.Status})
+	return c.JSON(order)
+}
+
+// Confirm settles a pending order after Stripe verification (owner or ADMIN).
+// Body: {} — proof comes from Stripe server-side, never from the client.
+func (h *OrderHandler) Confirm(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userId").(string)
+	var roles []string
+	if r, ok := c.Locals("roles").([]string); ok {
+		roles = r
+	}
+
+	order, err := h.orderService.ConfirmOrder(c.Params("id"), userID, roles)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidOrder) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"message": err.Error()})
+		}
+		if err.Error() == "order not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "order not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	middleware.AttachAudit(c, "order.confirm", "order", order.ID, map[string]interface{}{"total": order.Total})
+	return c.JSON(order)
+}
+
+// Cancel voids a pending order (owner or ADMIN).
+func (h *OrderHandler) Cancel(c *fiber.Ctx) error {
+	userID, _ := c.Locals("userId").(string)
+	var roles []string
+	if r, ok := c.Locals("roles").([]string); ok {
+		roles = r
+	}
+
+	order, err := h.orderService.CancelOrder(c.Params("id"), userID, roles)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidOrder) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"message": err.Error()})
+		}
+		if err.Error() == "order not found" {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "order not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	middleware.AttachAudit(c, "order.cancel", "order", order.ID, nil)
 	return c.JSON(order)
 }
 

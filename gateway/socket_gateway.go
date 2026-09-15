@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 
-	"github.com/golang-jwt/jwt/v5"
+	"refer_api/middleware"
+	"refer_api/utils"
+
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -23,6 +24,17 @@ type CartService interface {
 
 // CartServiceInstance is a global reference to the active CartService injected at startup.
 var CartServiceInstance CartService
+
+// AuditFunc, when set (main.go wires it to AuditService), receives successful
+// cart mutations from sockets: gateway has no HTTP context (no IP), so the
+// entry carries userID + action + detail only.
+var AuditFunc func(userID, action string, detail map[string]interface{})
+
+func auditCart(userID, action string, detail map[string]interface{}) {
+	if AuditFunc != nil {
+		AuditFunc(userID, action, detail)
+	}
+}
 
 // SocketGateway coordinates real-time events for orders and cart updates using Socket.io.
 type SocketGateway interface {
@@ -42,6 +54,17 @@ var Instance SocketGateway
 // clientSessionStore stores session metadata (like userId and roles) linked to client socket IDs.
 var clientSessionStore sync.Map
 
+// validateSocketToken validates legacy or Supabase JWTs (dual, same rule as
+// the HTTP middleware) and enriches app roles from DB when the token carries
+// none (Supabase JWTs never include our ADMIN/USER roles).
+func validateSocketToken(tokenStr string) (userID string, roles []string, err error) {
+	claims, err := utils.ValidateAnyToken(tokenStr)
+	if err != nil {
+		return "", nil, err
+	}
+	return claims.UserID, middleware.EnrichRolesFromDB(claims.UserID, claims.Roles), nil
+}
+
 // InitSocketGateway boots the socket.io server and configures the namespaces.
 func InitSocketGateway() SocketGateway {
 	io := socket.NewServer(nil, nil)
@@ -55,33 +78,10 @@ func InitSocketGateway() SocketGateway {
 			return
 		}
 
-		claims := jwt.MapClaims{}
-		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-			secret := os.Getenv("JWT_SECRET")
-			if secret == "" {
-				secret = "super-secret-key-12345"
-			}
-			return []byte(secret), nil
-		})
-		if err != nil || !token.Valid {
+		userID, roles, err := validateSocketToken(tokenStr)
+		if err != nil {
 			next(socket.NewExtendedError("Invalid or expired token", nil))
 			return
-		}
-
-		userID, _ := claims["sub"].(string)
-		if userID == "" {
-			userID, _ = claims["userId"].(string)
-		}
-
-		var roles []string
-		if rolesInterface, exists := claims["roles"]; exists {
-			if rolesSlice, ok := rolesInterface.([]interface{}); ok {
-				for _, r := range rolesSlice {
-					if rStr, ok := r.(string); ok {
-						roles = append(roles, rStr)
-					}
-				}
-			}
 		}
 
 		clientSessionStore.Store(client.Id(), map[string]interface{}{
@@ -134,22 +134,10 @@ func InitSocketGateway() SocketGateway {
 			return
 		}
 
-		claims := jwt.MapClaims{}
-		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-			secret := os.Getenv("JWT_SECRET")
-			if secret == "" {
-				secret = "super-secret-key-12345"
-			}
-			return []byte(secret), nil
-		})
-		if err != nil || !token.Valid {
+		userID, _, err := validateSocketToken(tokenStr)
+		if err != nil {
 			next(socket.NewExtendedError("Invalid or expired token", nil))
 			return
-		}
-
-		userID, _ := claims["sub"].(string)
-		if userID == "" {
-			userID, _ = claims["userId"].(string)
 		}
 
 		clientSessionStore.Store(client.Id(), map[string]interface{}{
@@ -203,6 +191,7 @@ func InitSocketGateway() SocketGateway {
 					log.Printf("[SocketGateway] [addToCart] AddToCart error: %v", err)
 				} else {
 					log.Printf("[SocketGateway] [addToCart] AddToCart successful for user: %s", userID)
+					auditCart(userID, "cart.add", map[string]interface{}{"data": data})
 				}
 			} else {
 				log.Printf("[SocketGateway] [addToCart] Ignored. len(args)=%d, CartServiceInstance=%v", len(args), CartServiceInstance)
@@ -217,6 +206,7 @@ func InitSocketGateway() SocketGateway {
 						log.Printf("[SocketGateway] [removeItem] RemoveFromCart error: %v", err)
 					} else {
 						log.Printf("[SocketGateway] [removeItem] RemoveFromCart successful for item: %s", itemID)
+						auditCart(userID, "cart.remove", map[string]interface{}{"itemId": itemID})
 					}
 				} else {
 					log.Printf("[SocketGateway] [removeItem] Error: arg is not a string: %v", args[0])
@@ -236,6 +226,7 @@ func InitSocketGateway() SocketGateway {
 						log.Printf("[SocketGateway] [updateQuantity] UpdateItemQuantity error: %v", err)
 					} else {
 						log.Printf("[SocketGateway] [updateQuantity] UpdateItemQuantity successful")
+						auditCart(userID, "cart.quantity", map[string]interface{}{"itemId": data.ItemID, "quantity": data.Quantity})
 					}
 				} else {
 					log.Printf("[SocketGateway] [updateQuantity] Error parsing args: %v", err)
@@ -250,6 +241,7 @@ func InitSocketGateway() SocketGateway {
 					log.Printf("[SocketGateway] [clearCart] ClearCart error: %v", err)
 				} else {
 					log.Printf("[SocketGateway] [clearCart] ClearCart successful")
+					auditCart(userID, "cart.clear", nil)
 				}
 			}
 		})

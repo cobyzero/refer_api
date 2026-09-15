@@ -9,9 +9,10 @@ import (
 type ProductCategory struct {
 	bun.BaseModel `bun:"table:product_categories"`
 
-	ID        string  `bun:"id,pk,type:char(36)" json:"id"`
-	Name      string  `bun:"name,unique,notnull" json:"name"`
-	IconURL   *string `bun:"iconUrl" json:"iconUrl"`
+	ID          string  `bun:"id,pk,type:char(36)" json:"id"`
+	Name        string  `bun:"name,unique,notnull" json:"name"`
+	Description string  `bun:"description" json:"description"`
+	IconURL     *string `bun:"iconUrl" json:"iconUrl"`
 	ImageURL  *string `bun:"imageUrl" json:"imageUrl"`
 	BannerURL *string `bun:"bannerUrl" json:"bannerUrl"`
 }
@@ -75,9 +76,25 @@ type Product struct {
 type SeasonalProduct struct {
 	bun.BaseModel `bun:"table:seasonal_products"`
 
-	ID        string   `bun:"id,pk,type:char(36)" json:"id"`
-	ProductID string   `bun:"productId,notnull" json:"productId"`
-	Product   *Product `bun:"rel:belongs-to,join:productId=id" json:"product"`
+	ID           string      `bun:"id,pk,type:char(36)" json:"id"`
+	ProductID    string      `bun:"productId,notnull" json:"productId"`
+	Product      *Product    `bun:"rel:belongs-to,join:productId=id" json:"product"`
+	CollectionID *string     `bun:"collectionId" json:"collectionId,omitempty"`
+	Collection   *Collection `bun:"rel:belongs-to,join:collectionId=id" json:"collection,omitempty"`
+}
+
+// Collection is a named, operator-curated group of featured products
+// (e.g. "Cafés de temporada"). Items live in seasonal_products so the
+// legacy GET /products/seasonal contract keeps working untouched.
+type Collection struct {
+	bun.BaseModel `bun:"table:collections"`
+
+	ID          string            `bun:"id,pk,type:char(36)" json:"id"`
+	Name        string            `bun:"name,unique,notnull" json:"name"`
+	Description string            `bun:"description" json:"description"`
+	IsActive    bool              `bun:"isActive,notnull,default:true" json:"isActive"`
+	CreatedAt   time.Time         `bun:"createdAt" json:"createdAt"`
+	Items       []SeasonalProduct `bun:"rel:has-many,join:id=collectionId" json:"-"`
 }
 
 // Mapped Response DTOs (unchanged)

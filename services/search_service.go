@@ -8,6 +8,7 @@ import (
 // SearchService defines business logic for text-based and category-based searches.
 type SearchService interface {
 	SearchProducts(query, category string) ([]models.MappedProductResponse, error)
+	SearchProductsPaged(query, category string, page, limit int) ([]models.MappedProductResponse, int, error)
 	GetCategories() ([]models.ProductCategory, error)
 }
 
@@ -21,17 +22,22 @@ func NewSearchService(productRepo repository.ProductRepository) SearchService {
 }
 
 func (s *searchService) SearchProducts(query, category string) ([]models.MappedProductResponse, error) {
-	products, err := s.productRepo.Search(query, category)
+	mapped, _, err := s.SearchProductsPaged(query, category, 0, 0)
+	return mapped, err
+}
+
+func (s *searchService) SearchProductsPaged(query, category string, page, limit int) ([]models.MappedProductResponse, int, error) {
+	products, total, err := s.productRepo.SearchPaged(query, category, page, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	var mapped []models.MappedProductResponse
+	mapped := make([]models.MappedProductResponse, 0, len(products))
 	for _, p := range products {
 		mapped = append(mapped, *models.MapProduct(&p))
 	}
 
-	return mapped, nil
+	return mapped, total, nil
 }
 
 func (s *searchService) GetCategories() ([]models.ProductCategory, error) {

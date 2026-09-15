@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"refer_api/middleware"
 	"refer_api/services"
 
 	"github.com/gofiber/fiber/v2"
@@ -60,6 +61,7 @@ func (h *StarHandler) RedeemReward(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.AttachAudit(c, "reward.redeem", "reward", body.RewardID, nil)
 
 	return c.Status(fiber.StatusCreated).JSON(result)
 }
@@ -100,6 +102,7 @@ func (h *StarHandler) CreateReward(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.AttachAudit(c, "reward.create", "reward", reward.ID, map[string]interface{}{"title": body["title"]})
 	return c.Status(fiber.StatusCreated).JSON(reward)
 }
 
@@ -115,6 +118,7 @@ func (h *StarHandler) UpdateReward(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.AttachAudit(c, "reward.update", "reward", id, nil)
 	return c.JSON(reward)
 }
 
@@ -124,5 +128,6 @@ func (h *StarHandler) DeleteReward(c *fiber.Ctx) error {
 	if err := h.starService.DeleteReward(id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.AttachAudit(c, "reward.delete", "reward", id, nil)
 	return c.JSON(fiber.Map{"success": true})
 }

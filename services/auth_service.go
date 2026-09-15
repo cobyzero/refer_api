@@ -1,10 +1,14 @@
 package services
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +20,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// ErrAuthEmailDisabled is returned when the operator disabled auth emails
+// (smtp_enabled / signup_email_enabled / recovery_email_enabled in
+// app_settings desde el módulo de configuraciones). Handlers lo mapean a
+// 403 {code: EMAIL_DISABLED} para que refer_web oculte/deshabilite la opción.
+var ErrAuthEmailDisabled = errors.New("auth emails are disabled by configuration")
+
 // AuthService defines the business logic interface for authentication.
 type AuthService interface {
 	Register(name, email, password string, keepUpdated bool) (*models.User, string, error)
@@ -23,6 +33,10 @@ type AuthService interface {
 	ChangePassword(userID, currentPassword, newPassword string) error
 	ForgotPassword(email string) error
 	ResetPassword(email, code, newPassword string) error
+	// VerifyEmail confirms the account with the email OTP code.
+	VerifyEmail(email, code string) (*models.User, string, error)
+	// ResendVerification re-sends the verification OTP email.
+	ResendVerification(email string) error
 }
 
 type authService struct {
@@ -113,6 +127,9 @@ func (s *authService) Login(email, password string) (*models.User, string, error
 }
 
 func (s *authService) ChangePassword(userID, currentPassword, newPassword string) error {
+	if len(newPassword) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
+	}
 	user, err := s.userRepo.FindByID(userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -133,56 +150,125 @@ func (s *authService) ChangePassword(userID, currentPassword, newPassword string
 	return s.userRepo.UpdatePassword(userID, string(newHashedPassword))
 }
 
+// Recovery-code hardening (Fix #1): 6-digit codes are brute-forceable, so
+// they get attempt limits, single-use semantics, uniform error messages (no
+// oracle for "unknown email" vs "wrong code" vs "expired"), constant-time
+// comparison, CSPRNG generation, and a resend cooldown.
+const (
+	resetCodeTTL         = 15 * time.Minute
+	resetCodeCooldown    = 60 * time.Second
+	resetCodeMaxAttempts = 5
+	// minPasswordLength mirrors refer_app (passwordMinLength: 6).
+	minPasswordLength = 6
+)
+
+// ErrRecoveryCodeInvalid is the ONLY error surfaced for missing, expired,
+// exhausted or mismatched codes, so callers can't distinguish the cases.
+var ErrRecoveryCodeInvalid = errors.New("invalid or expired recovery code")
+
 type resetCodeInfo struct {
 	code      string
 	expiresAt time.Time
+	attempts  int
+	lastSentAt time.Time
 }
 
-var resetCodes sync.Map // maps email (string) to resetCodeInfo
+var resetCodes sync.Map // maps normalized email (string) to resetCodeInfo
+
+// normalizeRecoveryEmail trims the lookup key so "a@x.com " can't hold a
+// separate code slot from "a@x.com".
+func normalizeRecoveryEmail(email string) string {
+	return strings.TrimSpace(email)
+}
 
 func (s *authService) ForgotPassword(email string) error {
-	user, err := s.userRepo.FindByEmail(email)
+	key := normalizeRecoveryEmail(email)
+	user, err := s.userRepo.FindByEmail(key)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("user not found")
+			// Anti-enumeration: same success as for known users.
+			return nil
 		}
 		return err
 	}
+	if user == nil {
+		return nil
+	}
 
-	// Generate 6-digit random code
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	code := fmt.Sprintf("%06d", r.Intn(1000000))
+	// Resend cooldown: don't mint a fresh code (nor extend the window) when
+	// one was just sent — cheapest spam/brute-force throttle.
+	if val, ok := resetCodes.Load(key); ok {
+		if info, ok := val.(resetCodeInfo); ok {
+			if time.Since(info.lastSentAt) < resetCodeCooldown {
+				return nil
+			}
+		}
+	}
+
+	// CSPRNG 6-digit code (math/rand is predictable across restarts).
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return err
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
+	now := time.Now()
 
 	// Store code in memory with 15 minutes expiration
-	resetCodes.Store(email, resetCodeInfo{
-		code:      code,
-		expiresAt: time.Now().Add(15 * time.Minute),
+	resetCodes.Store(key, resetCodeInfo{
+		code:       code,
+		expiresAt:  now.Add(resetCodeTTL),
+		lastSentAt: now,
 	})
 
-	// Print code to server console for development testing
-	fmt.Printf("\n[RECOVERY CODE] Generated recovery code for %s: %s (expires in 15 mins)\n\n", user.Email, code)
+	// Recovery codes are credential-equivalent: never print them unless the
+	// operator opts in explicitly (dev). Legacy mode has no mailer, so local
+	// devs set LOG_RECOVERY_CODES=true to see the code.
+	if os.Getenv("LOG_RECOVERY_CODES") == "true" {
+		fmt.Printf("\n[RECOVERY CODE] Generated recovery code for %s: %s (expires in 15 mins)\n\n", user.Email, code)
+	}
 	return nil
 }
 
 func (s *authService) ResetPassword(email, code, newPassword string) error {
-	val, ok := resetCodes.Load(email)
+	if len(newPassword) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
+	}
+	key := normalizeRecoveryEmail(email)
+	val, ok := resetCodes.Load(key)
 	if !ok {
-		return errors.New("no recovery code requested for this email")
+		return ErrRecoveryCodeInvalid
 	}
 
-	info := val.(resetCodeInfo)
-	if time.Now().After(info.expiresAt) {
-		resetCodes.Delete(email)
-		return errors.New("recovery code has expired")
+	info, ok := val.(resetCodeInfo)
+	if !ok {
+		resetCodes.Delete(key)
+		return ErrRecoveryCodeInvalid
+	}
+	if time.Now().After(info.expiresAt) || info.attempts >= resetCodeMaxAttempts {
+		resetCodes.Delete(key)
+		return ErrRecoveryCodeInvalid
 	}
 
-	if info.code != code {
-		return errors.New("invalid recovery code")
+	// Constant-time compare: no early-exit timing signal on prefix matches.
+	if subtle.ConstantTimeCompare([]byte(info.code), []byte(code)) != 1 {
+		info.attempts++
+		if info.attempts >= resetCodeMaxAttempts {
+			// Burn the code after too many guesses: the attacker must
+			// trigger a new forgot-password (cooldown + audit trail).
+			resetCodes.Delete(key)
+		} else {
+			resetCodes.Store(key, info)
+		}
+		return ErrRecoveryCodeInvalid
 	}
 
-	user, err := s.userRepo.FindByEmail(email)
+	user, err := s.userRepo.FindByEmail(key)
 	if err != nil {
-		return err
+		return ErrRecoveryCodeInvalid
+	}
+	if user == nil {
+		resetCodes.Delete(key)
+		return ErrRecoveryCodeInvalid
 	}
 
 	newHashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 10)
@@ -195,7 +281,19 @@ func (s *authService) ResetPassword(email, code, newPassword string) error {
 		return err
 	}
 
-	// Clean up code from memory
-	resetCodes.Delete(email)
+	// Single-use: clean up code from memory
+	resetCodes.Delete(key)
 	return nil
+}
+
+// VerifyEmail is not supported in legacy mode: email OTP verification lives
+// in Supabase Auth (GoTrue). Kept only to satisfy the AuthService contract so
+// handlers compile in both modes.
+func (s *authService) VerifyEmail(email, code string) (*models.User, string, error) {
+	return nil, "", errors.New("email verification requires Supabase Auth")
+}
+
+// ResendVerification is not supported in legacy mode (see VerifyEmail).
+func (s *authService) ResendVerification(email string) error {
+	return errors.New("email verification requires Supabase Auth")
 }

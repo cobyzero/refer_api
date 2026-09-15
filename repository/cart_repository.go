@@ -28,7 +28,7 @@ func NewCartRepository(db *bun.DB) CartRepository {
 }
 
 func (r *cartRepository) FindAllByUser(userID string) ([]models.CartItem, error) {
-	var items []models.CartItem
+	items := []models.CartItem{}
 	err := r.db.NewSelect().Model(&items).
 		Where("?TableAlias.\"userId\" = ?", userID).
 		Relation("Product").
@@ -135,7 +135,7 @@ func (r *cartRepository) FindByIDAndUser(id, userID string) (*models.CartItem, e
 }
 
 func (r *cartRepository) FindEnhancementsByIDs(ids []string) ([]models.ProductEnhancement, error) {
-	var enhancements []models.ProductEnhancement
+	enhancements := []models.ProductEnhancement{}
 	if len(ids) == 0 {
 		return enhancements, nil
 	}

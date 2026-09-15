@@ -18,6 +18,11 @@ const (
 	OrderStatusReady     OrderStatus = "READY"
 	OrderStatusCompleted OrderStatus = "COMPLETED"
 	OrderStatusCancelled OrderStatus = "CANCELLED"
+	// OrderStatusPendingPayment is the order-first flow state: the order
+	// exists with its server-computed total, but no money moved yet. It
+	// only reaches the kitchen (ORDERED) after POST /orders/:id/confirm
+	// verifies the Stripe intent as succeeded.
+	OrderStatusPendingPayment OrderStatus = "PENDING_PAYMENT"
 )
 
 // StringArray is a custom type for mapping comma-separated strings to a Go slice.
@@ -67,6 +72,10 @@ type Order struct {
 	ServiceFee    float64     `bun:"serviceFee,default:0" json:"serviceFee"`
 	Status        OrderStatus `bun:"status,default:'ORDERED'" json:"status"`
 	PaymentMethod string      `bun:"paymentMethod,notnull" json:"paymentMethod"`
+	// PaymentIntentID links the Stripe intent created for this order
+	// (order-first flow). PaidAt is set on confirm.
+	PaymentIntentID *string    `bun:"paymentIntentId" json:"paymentIntentId,omitempty"`
+	PaidAt          *time.Time `bun:"paidAt" json:"paidAt,omitempty"`
 	PickupTime    *time.Time  `bun:"pickupTime" json:"pickupTime"`
 	CreatedAt     time.Time   `bun:"createdAt" json:"createdAt"`
 

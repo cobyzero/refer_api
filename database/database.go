@@ -30,8 +30,15 @@ func Connect() error {
 	return err
 }
 
-// connect performs the actual initialization logic.
-func connect() error {
+// buildDSN resolves the Postgres DSN.
+// Precedence: DATABASE_URL (Fase 2: Supabase-managed PostgreSQL) takes
+// priority when set; otherwise the legacy DB_HOST/DB_PORT/... parts are used.
+// Behavior without DATABASE_URL is byte-for-byte identical to before.
+func buildDSN() (string, error) {
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		return url, nil
+	}
+
 	dbUser := os.Getenv("DB_USERNAME")
 	dbPass := os.Getenv("DB_PASSWORD")
 	dbHost := os.Getenv("DB_HOST")
@@ -40,7 +47,7 @@ func connect() error {
 
 	// Validate required env vars
 	if dbUser == "" || dbHost == "" || dbName == "" {
-		return fmt.Errorf("database environment variables are missing (DB_USERNAME, DB_HOST, DB_NAME)")
+		return "", fmt.Errorf("database environment variables are missing (DB_USERNAME, DB_HOST, DB_NAME)")
 	}
 
 	// Default to 5432 if DB_PORT is not set
@@ -53,9 +60,17 @@ func connect() error {
 		sslMode = "disable"
 	}
 
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		dbUser, dbPass, dbHost, dbPort, dbName, sslMode,
-	)
+	), nil
+}
+
+// connect performs the actual initialization logic.
+func connect() error {
+	dsn, err := buildDSN()
+	if err != nil {
+		return err
+	}
 
 	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
 

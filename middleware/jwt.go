@@ -1,12 +1,61 @@
 package middleware
 
 import (
+	"context"
 	"strings"
 
+	"refer_api/database"
+	"refer_api/repository"
 	"refer_api/utils"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// EnrichRolesFromDB loads app roles (ADMIN/USER) from public.users when the
+// JWT itself carries none. Supabase Auth JWTs never contain our app roles,
+// so without this step RequireRole("ADMIN") would reject Supabase sessions.
+// Exported so the Socket.IO gateway reuses the exact same logic as HTTP.
+//
+// Fase 0: 5-min in-memory cache + per-user singleflight so concurrent
+// requests for the same user share one DB lookup instead of stampeding it.
+func EnrichRolesFromDB(userID string, roles []string) []string {
+	if len(roles) > 0 || userID == "" || database.DB == nil {
+		return roles
+	}
+	if cached, ok := getCachedRoles(userID); ok {
+		return cached
+	}
+
+	// Singleflight-lite: concurrent callers for the same userID wait on one DB hit.
+	c := &call{}
+	c.wg.Add(1)
+	if actual, loaded := rolesInflight.LoadOrStore(userID, c); loaded {
+		actual.(*call).wg.Wait()
+		if cached, ok := getCachedRoles(userID); ok {
+			return cached
+		}
+		return roles
+	}
+	defer func() {
+		c.wg.Done()
+		rolesInflight.Delete(userID)
+	}()
+
+	repo := repository.NewUserRepository(database.DB)
+	user, err := repo.FindByID(userID)
+	if err != nil || user == nil {
+		// Don't cache misses: transient DB errors shouldn't pin empty roles.
+		_ = context.Background()
+		return roles
+	}
+	out := make([]string, 0, len(user.Roles))
+	for _, r := range user.Roles {
+		out = append(out, r.Name)
+	}
+	setCachedRoles(userID, out)
+	c.roles = out
+	return out
+}
 
 // JWTProtected checks for a valid Bearer token in the Authorization header
 func JWTProtected() fiber.Handler {
@@ -26,17 +75,22 @@ func JWTProtected() fiber.Handler {
 		}
 
 		tokenString := parts[1]
-		claims, err := utils.ValidateToken(tokenString)
+		// Dual validation: Supabase JWT first (when SUPABASE_JWT_SECRET is set),
+		// legacy JWT_SECRET as fallback so existing Flutter sessions survive.
+		claims, err := utils.ValidateAnyToken(tokenString)
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Invalid or expired token",
 			})
 		}
 
+		roles := EnrichRolesFromDB(claims.UserID, claims.Roles)
+
 		// Store user details in Fiber locals
-		c.Locals("userId", claims.Sub)
+		c.Locals("userId", claims.UserID)
 		c.Locals("email", claims.Email)
-		c.Locals("roles", claims.Roles)
+		c.Locals("roles", roles)
+		c.Locals("authProvider", string(claims.Provider))
 
 		return c.Next()
 	}

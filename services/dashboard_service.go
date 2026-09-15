@@ -49,17 +49,14 @@ func (s *dashboardService) GetSummary(userID string) (*models.UserSummaryRespons
 		rewards = []models.Reward{}
 	}
 
-	history, err := s.starRepo.FindHistory(userID)
+	// Fase 0: solo los 5 recientes, no todo el historial.
+	history, err := s.starRepo.FindHistoryRecent(userID, 5)
 	if err != nil {
 		history = []models.StarTransaction{}
 	}
 
 	recentActivity := []models.ActivitySummaryDto{}
-	limit := 5
-	if len(history) < 5 {
-		limit = len(history)
-	}
-	for i := 0; i < limit; i++ {
+	for i := range history {
 		h := history[i]
 		recentActivity = append(recentActivity, models.ActivitySummaryDto{
 			ID:    h.ID,
@@ -89,7 +86,13 @@ func (s *dashboardService) GetSummary(userID string) (*models.UserSummaryRespons
 }
 
 func (s *dashboardService) GetAdminSummary() (*models.AdminSummaryResponse, error) {
-	users, err := s.userRepo.FindAll()
+	ctx := context.Background()
+	// Fase 0: COUNT(*) + últimos 5 en vez de cargar users y orders completos.
+	totalUsers, err := s.db.NewSelect().Model((*models.User)(nil)).Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	totalOrders, err := s.db.NewSelect().Model((*models.Order)(nil)).Count(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +101,8 @@ func (s *dashboardService) GetAdminSummary() (*models.AdminSummaryResponse, erro
 	if err := s.db.NewSelect().Model(&orders).
 		Relation("User").
 		OrderExpr("?TableAlias.\"createdAt\" DESC").
-		Scan(context.Background()); err != nil {
+		Limit(5).
+		Scan(ctx); err != nil {
 		return nil, err
 	}
 
@@ -111,9 +115,6 @@ func (s *dashboardService) GetAdminSummary() (*models.AdminSummaryResponse, erro
 	if err != nil {
 		totalStarsRedeemed = 0
 	}
-
-	totalOrders := len(orders)
-	totalUsers := len(users)
 
 	var starsAwardedStr string
 	if totalStarsAwarded > 1000 {
@@ -129,12 +130,9 @@ func (s *dashboardService) GetAdminSummary() (*models.AdminSummaryResponse, erro
 		{Label: "Puntos Canjeados", Value: fmt.Sprintf("%d", totalStarsRedeemed), Change: "+15%", Icon: "redeem", Color: "success"},
 	}
 
+	// orders ya viene LIMIT 5 desde DB.
 	recentActivity := []models.AdminActivitySummary{}
-	limit := 5
-	if len(orders) < 5 {
-		limit = len(orders)
-	}
-	for i := 0; i < limit; i++ {
+	for i := range orders {
 		o := orders[i]
 		userName := "Usuario"
 		avatar := "U"

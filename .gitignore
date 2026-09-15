@@ -38,6 +38,7 @@ lerna-debug.log*
 
 # Database
 *.sqlite
+/backups/ # dumps con datos reales del migrador (nunca commitear)
 /test-reports
 /uploads/*
 !/uploads/.gitkeep

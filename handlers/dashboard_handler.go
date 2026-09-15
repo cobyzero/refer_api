@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"refer_api/middleware"
 	"refer_api/services"
 
 	"github.com/gofiber/fiber/v2"
@@ -18,6 +19,7 @@ func NewDashboardHandler(dashboardService services.DashboardService) *DashboardH
 
 // GetSummary returns the authenticated user's home summary view.
 func (h *DashboardHandler) GetSummary(c *fiber.Ctx) error {
+	middleware.SetPrivateNoStore(c)
 	userID := c.Locals("userId").(string)
 
 	summary, err := h.dashboardService.GetSummary(userID)
@@ -30,6 +32,7 @@ func (h *DashboardHandler) GetSummary(c *fiber.Ctx) error {
 
 // GetAdminSummary returns administrative dashboard metrics and recent orders.
 func (h *DashboardHandler) GetAdminSummary(c *fiber.Ctx) error {
+	middleware.SetPrivateNoStore(c)
 	summary, err := h.dashboardService.GetAdminSummary()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})

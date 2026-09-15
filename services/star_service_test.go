@@ -29,6 +29,12 @@ func (m *mockStarRepo) GetStarBalance(_ string) (int, error) { return m.balance,
 func (m *mockStarRepo) FindHistory(_ string) ([]models.StarTransaction, error) {
 	return m.history, nil
 }
+func (m *mockStarRepo) FindHistoryRecent(_ string, limit int) ([]models.StarTransaction, error) {
+	if limit > 0 && len(m.history) > limit {
+		return m.history[:limit], nil
+	}
+	return m.history, nil
+}
 func (m *mockStarRepo) FindRewards() ([]models.Reward, error)   { return m.rewards, nil }
 func (m *mockStarRepo) FindRewardByID(_ string) (*models.Reward, error) {
 	return m.rewardByID, m.rewardByIDErr

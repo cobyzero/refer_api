@@ -128,8 +128,34 @@ func TestAuthService_ResetPassword_NoCodeRequested(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error when no code was requested, got nil")
 	}
-	if err.Error() != "no recovery code requested for this email" {
-		t.Errorf("Expected 'no recovery code requested for this email', got: %s", err.Error())
+	// Uniform message: must not reveal whether a code was requested.
+	if !errors.Is(err, ErrRecoveryCodeInvalid) {
+		t.Errorf("Expected ErrRecoveryCodeInvalid, got: %s", err.Error())
+	}
+}
+
+func TestAuthService_ResetPassword_WrongCodeBurnsAfterMaxAttempts(t *testing.T) {
+	repo := &mockUserRepo{user: &models.User{ID: "u1", Email: "a@example.com"}}
+	svc := NewAuthService(repo)
+	if err := svc.ForgotPassword("a@example.com"); err != nil {
+		t.Fatalf("ForgotPassword failed: %v", err)
+	}
+	for i := 0; i < resetCodeMaxAttempts; i++ {
+		if err := svc.ResetPassword("a@example.com", "000000", "newpass1"); !errors.Is(err, ErrRecoveryCodeInvalid) {
+			t.Fatalf("attempt %d: expected ErrRecoveryCodeInvalid, got: %v", i, err)
+		}
+	}
+	// Code is burned: even the right code (unknown here) must fail uniformly.
+	if err := svc.ResetPassword("a@example.com", "000000", "newpass1"); !errors.Is(err, ErrRecoveryCodeInvalid) {
+		t.Errorf("Expected burned code to fail uniformly, got: %v", err)
+	}
+}
+
+func TestAuthService_ForgotPassword_UnknownUserUniformSuccess(t *testing.T) {
+	repo := &mockUserRepo{findByEmailErr: sql.ErrNoRows}
+	svc := NewAuthService(repo)
+	if err := svc.ForgotPassword("ghost@example.com"); err != nil {
+		t.Errorf("Expected uniform success for unknown user, got: %v", err)
 	}
 }
 

@@ -11,5 +11,6 @@ import (
 func RegisterPaymentRoutes(router fiber.Router, paymentHandler *handlers.PaymentHandler) {
 	payments := router.Group("/payments", middleware.JWTProtected())
 
-	payments.Post("/create-payment-intent", paymentHandler.CreatePaymentIntent)
+	// Fix #2: throttle intent creation (card-testing abuse).
+	payments.Post("/create-payment-intent", middleware.PaymentLimiter(), paymentHandler.CreatePaymentIntent)
 }

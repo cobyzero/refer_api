@@ -11,6 +11,8 @@ import (
 type StarRepository interface {
 	GetStarBalance(userID string) (int, error)
 	FindHistory(userID string) ([]models.StarTransaction, error)
+	// FindHistoryRecent returns at most limit rows (for dashboard recent activity).
+	FindHistoryRecent(userID string, limit int) ([]models.StarTransaction, error)
 	FindRewards() ([]models.Reward, error)
 	FindRewardByID(id string) (*models.Reward, error)
 	CreateTransaction(tx *models.StarTransaction) error
@@ -48,16 +50,23 @@ func (r *starRepository) GetStarBalance(userID string) (int, error) {
 }
 
 func (r *starRepository) FindHistory(userID string) ([]models.StarTransaction, error) {
-	var txs []models.StarTransaction
-	err := r.db.NewSelect().Model(&txs).
+	return r.FindHistoryRecent(userID, 0)
+}
+
+func (r *starRepository) FindHistoryRecent(userID string, limit int) ([]models.StarTransaction, error) {
+	txs := []models.StarTransaction{}
+	q := r.db.NewSelect().Model(&txs).
 		Where("\"userId\" = ?", userID).
-		OrderExpr("date DESC").
-		Scan(context.Background())
+		OrderExpr("date DESC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Scan(context.Background())
 	return txs, err
 }
 
 func (r *starRepository) FindRewards() ([]models.Reward, error) {
-	var rewards []models.Reward
+	rewards := []models.Reward{}
 	err := r.db.NewSelect().Model(&rewards).Where("\"isActive\" = ?", true).Scan(context.Background())
 	return rewards, err
 }
@@ -82,7 +91,7 @@ func (r *starRepository) CreateRedeemedReward(rr *models.RedeemedReward) error {
 }
 
 func (r *starRepository) FindRedeemedRewards(userID string) ([]models.RedeemedReward, error) {
-	var rrs []models.RedeemedReward
+	rrs := []models.RedeemedReward{}
 	err := r.db.NewSelect().Model(&rrs).
 		Where("\"userId\" = ?", userID).
 		OrderExpr("\"createdAt\" DESC").
@@ -129,7 +138,7 @@ func (r *starRepository) GetTotalStarsRedeemed() (int, error) {
 }
 
 func (r *starRepository) GetAllTransactions() ([]models.StarTransaction, error) {
-	var txs []models.StarTransaction
+	txs := []models.StarTransaction{}
 	err := r.db.NewSelect().Model(&txs).
 		Relation("User").
 		OrderExpr("date DESC").

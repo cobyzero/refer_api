@@ -22,6 +22,215 @@ services:
   #   networks:
   #     - refer_network
 
+  # ============================================================
+  # SUPABASE SELF-HOSTED (lean: PostgreSQL + Auth + PostgREST + Kong)
+  # Arquitectura: Flutter -> Go -> Kong (:8000) -> Auth/PostgREST -> PG.
+  # Flutter NUNCA habla con Supabase directo (sin Studio/Storage/Realtime).
+  # Para usar el PG de Supabase como DB principal (Fase 2):
+  #   DB_HOST=supabase-db DB_PORT=5432 DB_NAME=postgres
+  #   DB_USERNAME=postgres DB_PASSWORD=${SUPABASE_POSTGRES_PASSWORD}
+  # ============================================================
+
+  supabase-db:
+    image: supabase/postgres:15.8.1.060
+    container_name: refer_supabase_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
+    ports:
+      - "${SUPABASE_DB_EXTERNAL_PORT:-5433}:5432"
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data
+      # Init solo en primer arranque (volumen vacío): asigna password al rol
+      # authenticator (PostgREST). Volúmenes ya inicializados: aplicar una vez
+      # ALTER USER authenticator WITH PASSWORD '...' como supabase_admin.
+      - ./supabase/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - refer_network
+
+  supabase-auth:
+    image: supabase/auth:v2.196.0
+    container_name: refer_supabase_auth
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}/auth/v1
+      GOTRUE_API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}/auth/v1
+      GOTRUE_SITE_URL: ${SUPABASE_SITE_URL:-http://localhost:3000}
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?search_path=auth
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      GOTRUE_JWT_EXP: ${GOTRUE_JWT_EXP:-3600}
+      GOTRUE_MAILER_AUTOCONFIRM: ${SUPABASE_MAILER_AUTOCONFIRM:-false}
+      GOTRUE_MAILER_OTP_EXP: ${SUPABASE_MAILER_OTP_EXP:-600}
+      # Plantilla OTP (código de 6 dígitos {{ .Token }}) en vez del link default.
+      # GoTrue la descarga por HTTP: debe ser URL absoluta alcanzable desde
+      # este contenedor. Default = Go del compose por DNS interno.
+      # Dev con `go run` local: SUPABASE_MAILER_TEMPLATE_CONFIRMATION=http://host.docker.internal:3000/templates/confirmation.html
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: ${SUPABASE_MAILER_TEMPLATE_CONFIRMATION:-http://app:3000/templates/confirmation.html}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_SMS_AUTOCONFIRM: "false"
+      GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: "true"
+      GOTRUE_LOG_LEVEL: error
+      # SMTP (Resend): set SMTP_PASS=re_xxx in .env to send real OTP emails.
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-smtp.resend.com}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-resend}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-Refer App}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9999/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - refer_network
+
+  supabase-rest:
+    image: postgrest/postgrest:v12.2.0
+    container_name: refer_supabase_rest
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS:-public}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    networks:
+      - refer_network
+
+  supabase-kong:
+    image: kong:2.8.1
+    container_name: refer_supabase_kong
+    restart: unless-stopped
+    depends_on:
+      supabase-auth:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+    ports:
+      - "${SUPABASE_KONG_HTTP_PORT:-8000}:8000"
+      - "${SUPABASE_KONG_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./supabase/kong.yml:/home/kong/kong.yml:ro
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - refer_network
+
+  supabase-storage:
+    image: supabase/storage-api:v1.73.0
+    container_name: refer_supabase_storage
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-rest:
+        condition: service_started
+    environment:
+      PORT: 5000
+      POSTGREST_URL: http://supabase-rest:3000
+      PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      DATABASE_URL: postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?search_path=storage,public
+      FILE_SIZE_LIMIT: ${SUPABASE_STORAGE_FILE_LIMIT:-52428800}
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+      ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      GOTRUE_URL: http://supabase-auth:9999
+    volumes:
+      - supabase_storage_data:/var/lib/storage
+    networks:
+      - refer_network
+
+  # --- Panel (Studio dashboard) http://localhost:3002 ---
+  # Opcional: no lo necesita la app (Go es el único cliente).
+  supabase-meta:
+    image: supabase/postgres-meta:v0.99.0
+    container_name: refer_supabase_meta
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
+      PG_META_CRYPTO_KEY: ${SUPABASE_PG_META_CRYPTO_KEY:-dev-meta-crypto-key-0123456789abcdef}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - refer_network
+
+  supabase-studio:
+    image: supabase/studio:2026.09.04-sha-5a67366
+    container_name: refer_supabase_studio
+    restart: unless-stopped
+    depends_on:
+      supabase-meta:
+        condition: service_healthy
+      supabase-kong:
+        condition: service_healthy
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      POSTGRES_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
+      # Studio construye su connection string a PG con estas vars
+      # (default oficial: host `db`; el nuestro es `supabase-db`).
+      POSTGRES_HOST: supabase-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      DEFAULT_ORGANIZATION_NAME: Refer App
+      DEFAULT_PROJECT_NAME: refer
+    ports:
+      - "${SUPABASE_STUDIO_PORT:-3002}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://'+require('os').hostname()+':3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - refer_network
+
   app:
     build:
       context: .
@@ -40,11 +249,24 @@ services:
       DB_HOST: ${DB_HOST:-host.docker.internal}
       DB_PORT: ${DB_PORT:-5432}
       DB_SSLMODE: disable
+      # Cutover Fase 2: dentro del compose, Go usa el PG de Supabase por red
+      # interna (tiene prioridad sobre DB_*). Para forzar otra DB (legacy u
+      # otra), setea APP_DATABASE_URL explícito (ej. en el Environment de Dokploy).
+      # OJO: .env trae DATABASE_URL=localhost:... para `go run` local; este
+      # override manda dentro del container (environment: gana a env_file).
+      DATABASE_URL: ${APP_DATABASE_URL:-postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?sslmode=disable}
+      # Supabase Auth adapter (Fase 1): dentro del compose, Go habla con Kong
+      # por red interna. `go run` local usa el SUPABASE_URL del .env
+      # (http://localhost:8000). Override explícito: APP_SUPABASE_URL.
+      SUPABASE_URL: ${APP_SUPABASE_URL:-http://supabase-kong:8000}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
     volumes:
       - uploads_data:/app/uploads
     networks:
       - refer_network
-      - dokploy-network
+      #- dokploy-network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -70,11 +292,15 @@ services:
 volumes:
   # postgres_data:  # descomentar si usas postgres del compose
   #   driver: local
+  supabase_db_data: # persistencia del PostgreSQL de Supabase (NO borrar sin backup)
+    driver: local
+  supabase_storage_data: # archivos de Storage (NO borrar sin backup)
+    driver: local
   uploads_data:
     driver: local
 
 networks:
   refer_network:
     driver: bridge
-  dokploy-network:
-    external: true
+  #dokploy-network:
+    #external: true

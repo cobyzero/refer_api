@@ -4,9 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 
+	"refer_api/middleware"
 	"refer_api/services"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,12 +15,19 @@ import (
 
 // UserHandler coordinates HTTP requests for user endpoints.
 type UserHandler struct {
-	userService services.UserService
+	userService    services.UserService
+	storageService services.StorageService
 }
 
 // NewUserHandler constructs a new UserHandler instance.
 func NewUserHandler(userService services.UserService) *UserHandler {
 	return &UserHandler{userService: userService}
+}
+
+// WithStorage injects the upload backend (Supabase Storage w/ disk fallback).
+func (h *UserHandler) WithStorage(s services.StorageService) *UserHandler {
+	h.storageService = s
+	return h
 }
 
 // GetProfile returns the authenticated user's profile and calculated star balance.
@@ -64,6 +72,7 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.AttachAudit(c, "user.profile", "user", userID, updateData)
 
 	var rolesList []string
 	for _, r := range user.Roles {
@@ -84,7 +93,8 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 	})
 }
 
-// UploadPhoto saves profile photo uploads to disk.
+// UploadPhoto stores profile photos via StorageService (Supabase Storage,
+// disk fallback). Contract unchanged: multipart `file` -> 201 {photoUrl}.
 func (h *UserHandler) UploadPhoto(c *fiber.Ctx) error {
 	userID := c.Locals("userId").(string)
 
@@ -97,28 +107,38 @@ func (h *UserHandler) UploadPhoto(c *fiber.Ctx) error {
 	if _, randErr := rand.Read(randomBytes); randErr != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to generate unique filename"})
 	}
-	randomName := hex.EncodeToString(randomBytes)
-	extension := filepath.Ext(file.Filename)
-	newFilename := fmt.Sprintf("%s%s", randomName, extension)
+	newFilename := fmt.Sprintf("%s%s", hex.EncodeToString(randomBytes), filepath.Ext(file.Filename))
 
-	uploadDir := "./uploads"
-	if _, pathErr := os.Stat(uploadDir); os.IsNotExist(pathErr) {
-		if makeErr := os.Mkdir(uploadDir, 0755); makeErr != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to create upload directory"})
-		}
+	src, err := file.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to read file"})
 	}
-
-	destPath := filepath.Join(uploadDir, newFilename)
-	if saveErr := c.SaveFile(file, destPath); saveErr != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to save file"})
+	defer src.Close()
+	data, err := io.ReadAll(io.LimitReader(src, 50<<20))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to read file"})
 	}
 
 	photoURL := fmt.Sprintf("%s/uploads/%s", c.BaseURL(), newFilename)
+	if h.storageService != nil {
+		if url, saveErr := h.storageService.Save(services.BucketAvatars, newFilename, data, file.Header.Get("Content-Type"), c.BaseURL()); saveErr == nil {
+			photoURL = url
+		} else {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to save file"})
+		}
+	} else {
+		if url, saveErr := services.SaveToDisk(newFilename, data, c.BaseURL()); saveErr == nil {
+			photoURL = url
+		} else {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to save file"})
+		}
+	}
 
 	if updateErr := h.userService.UpdatePhoto(userID, photoURL); updateErr != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update profile image path"})
 	}
 
+	middleware.AttachAudit(c, "user.photo", "user", userID, nil)
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"photoUrl": photoURL,
 	})
@@ -144,6 +164,7 @@ func (h *UserHandler) FindByID(c *fiber.Ctx) error {
 }
 
 // Create inserts a user manually (Admin only).
+// Fase 0: roles are cached 5 min in middleware; new users start uncached.
 func (h *UserHandler) Create(c *fiber.Ctx) error {
 	var body map[string]interface{}
 	if err := c.BodyParser(&body); err != nil {
@@ -163,6 +184,7 @@ func (h *UserHandler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.AttachAudit(c, "user.create", "user", user.ID, map[string]interface{}{"email": user.Email, "roles": roleNames})
 
 	return c.Status(fiber.StatusCreated).JSON(user)
 }
@@ -189,6 +211,11 @@ func (h *UserHandler) Update(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	// Fase 0: role changes must propagate immediately despite the 5-min cache.
+	if len(roleNames) > 0 {
+		middleware.InvalidateRolesCache(id)
+	}
+	middleware.AttachAudit(c, "user.update", "user", id, map[string]interface{}{"roles": roleNames})
 
 	return c.JSON(user)
 }
@@ -200,6 +227,8 @@ func (h *UserHandler) Delete(c *fiber.Ctx) error {
 	if err := h.userService.Delete(id); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
+	middleware.InvalidateRolesCache(id)
+	middleware.AttachAudit(c, "user.delete", "user", id, nil)
 
 	return c.JSON(fiber.Map{
 		"success": true,

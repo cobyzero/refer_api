@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"refer_api/models"
 	"time"
 
@@ -10,12 +11,26 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// ErrOrderNotPending is returned when a payment-flow transition targets an
+// order that is no longer awaiting payment (already paid/cancelled).
+var ErrOrderNotPending = errors.New("order is not awaiting payment")
+
 // OrderRepository defines database operations for orders.
 type OrderRepository interface {
 	FindAll() ([]models.Order, error)
 	FindAllByUser(userID string) ([]models.Order, error)
 	FindByID(orderID string) (*models.Order, error)
 	UpdateStatus(orderID string, status models.OrderStatus) error
+	// CreatePendingOrder inserts a PENDING_PAYMENT order with its items.
+	// No stars are awarded here — that happens on MarkPaidWithStars.
+	CreatePendingOrder(order *models.Order, items []models.OrderItem) error
+	// SetPaymentIntent links a Stripe intent to a pending order.
+	SetPaymentIntent(orderID, intentID string) error
+	// MarkPaidWithStars flips a pending order to ORDERED, stamps paidAt and
+	// awards the star earn transaction (when stars > 0), atomically.
+	MarkPaidWithStars(orderID, userID string, stars int, title string) error
+	// CancelPending flips a pending order to CANCELLED.
+	CancelPending(orderID string) error
 	CreateOrderViaSP(
 		orderID string,
 		userID string,
@@ -40,7 +55,7 @@ func NewOrderRepository(db *bun.DB) OrderRepository {
 }
 
 func (r *orderRepository) FindAll() ([]models.Order, error) {
-	var orders []models.Order
+	orders := []models.Order{}
 	err := r.db.NewSelect().Model(&orders).
 		Relation("Items").
 		Relation("User").
@@ -50,7 +65,7 @@ func (r *orderRepository) FindAll() ([]models.Order, error) {
 }
 
 func (r *orderRepository) FindAllByUser(userID string) ([]models.Order, error) {
-	var orders []models.Order
+	orders := []models.Order{}
 	err := r.db.NewSelect().Model(&orders).
 		Where("?TableAlias.\"userId\" = ?", userID).
 		Relation("Items").
@@ -79,6 +94,102 @@ func (r *orderRepository) UpdateStatus(orderID string, status models.OrderStatus
 		Where("id = ?", orderID).
 		Exec(context.Background())
 	return err
+}
+
+// CreatePendingOrder inserts the order row plus its items in one transaction.
+func (r *orderRepository) CreatePendingOrder(order *models.Order, items []models.OrderItem) error {
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.NewInsert().Model(order).Exec(ctx); err != nil {
+		return err
+	}
+	for i := range items {
+		items[i].OrderID = order.ID
+		if _, err = tx.NewInsert().Model(&items[i]).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SetPaymentIntent links a Stripe intent id to a still-pending order.
+func (r *orderRepository) SetPaymentIntent(orderID, intentID string) error {
+	res, err := r.db.NewUpdate().Model((*models.Order)(nil)).
+		Set("\"paymentIntentId\" = ?", intentID).
+		Where("id = ?", orderID).
+		Where("\"status\" = ?", models.OrderStatusPendingPayment).
+		Exec(context.Background())
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrOrderNotPending
+	}
+	return nil
+}
+
+// MarkPaidWithStars confirms payment: ORDERED + paidAt + earn transaction.
+func (r *orderRepository) MarkPaidWithStars(orderID, userID string, stars int, title string) error {
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	res, err := tx.NewUpdate().Model((*models.Order)(nil)).
+		Set("\"status\" = ?", models.OrderStatusOrdered).
+		Set("\"paidAt\" = ?", time.Now()).
+		Where("id = ?", orderID).
+		Where("\"status\" = ?", models.OrderStatusPendingPayment).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrOrderNotPending
+	}
+	if stars > 0 {
+		st := &models.StarTransaction{
+			ID:     uuid.New().String(),
+			UserID: userID,
+			Type:   "earn",
+			Title:  title,
+			Stars:  stars,
+			Date:   time.Now(),
+		}
+		if _, err = tx.NewInsert().Model(st).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// CancelPending moves a still-pending order to CANCELLED.
+func (r *orderRepository) CancelPending(orderID string) error {
+	res, err := r.db.NewUpdate().Model((*models.Order)(nil)).
+		Set("\"status\" = ?", models.OrderStatusCancelled).
+		Where("id = ?", orderID).
+		Where("\"status\" = ?", models.OrderStatusPendingPayment).
+		Exec(context.Background())
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrOrderNotPending
+	}
+	return nil
 }
 
 func (r *orderRepository) CreateOrderViaSP(
