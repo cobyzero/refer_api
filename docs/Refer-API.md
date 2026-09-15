@@ -27,7 +27,7 @@ Backend de [[Refer - Idea de Negocio|Refer]] (Flutter sin cambios): `Flutter →
 > - **Repo:** `refer_api` · **Lenguaje:** Go 1.25 · **Framework:** Fiber v2 + Bun ORM
 > - **API base local:** `http://localhost:3001` (container) / `:3000` (`go run`)
 > - **DB principal:** Supabase PostgreSQL (`supabase-db:5432`, host `localhost:5433`)
-> - **Auth:** Supabase Auth nativo (GoTrue) + JWT dual con fallback legacy
+> - **Auth:** Supabase Auth nativo (GoTrue); sin SUPABASE_* el server no arranca
 > - **Health:** `GET /health` → `{"status":"ok"}`
 
 ## 1. Stack y dependencias
@@ -36,12 +36,12 @@ Backend de [[Refer - Idea de Negocio|Refer]] (Flutter sin cambios): `Flutter →
 |---|---|---|
 | HTTP | `gofiber/fiber/v2` v2.52.13 | Router + CORS + static `/uploads` y `/templates` |
 | ORM | `uptrace/bun` v1.2.18 + `pgdialect` + `pgdriver` | Modelos en `models/`, repos en `repository/` |
-| Auth JWT | `golang-jwt/jwt/v5` | Dual: Supabase (`SUPABASE_JWT_SECRET`) + legacy (`JWT_SECRET`) |
-| Passwords | `golang.org/x/crypto` (bcrypt) | Solo flujo legacy; en Supabase las gestiona GoTrue |
+| Auth JWT | `golang-jwt/jwt/v5` | Supabase (`SUPABASE_JWT_SECRET`), sub = auth.users.id |
+| Passwords | GoTrue | Las gestiona Supabase Auth; en DB no se guardan hashes |
 | Realtime carrito | `zishang520/socket.io/v2` | Gateway en `gateway/socket_gateway.go`, ruta `/socket.io/*` |
 | Pagos | `stripe/stripe-go/v72` | `POST /api/payments/create-payment-intent` |
 | Config | `joho/godotenv` | Carga `.env` (gitignored, copiar de `.env.example`) |
-| Infra | Docker Compose + Supabase self-hosted | PG 15.8.1.060, Auth v2.196.0, PostgREST v12.2.0, Kong 2.8.1, Storage v1.73.0, Studio |
+| Infra | Docker Compose + Supabase self-hosted | PG 15.8.1.060, Auth v2.196.0, PostgREST v12.2.0, Kong 2.8.1, Storage v1.73.0 |
 
 ```mermaid
 graph LR
@@ -65,11 +65,6 @@ graph LR
 | `supabase-rest` | `postgrest/postgrest:v12.2.0` | interno :3000 vía Kong `/rest/v1/*` | Denegado por RLS deny-all; solo Go autoriza |
 | `supabase-kong` | `kong:2.8.1` | `:8000` / `:8443` | Config `supabase/kong.yml`, DB-less |
 | `supabase-storage` | `supabase/storage-api:v1.73.0` | interno :5000 vía Kong `/storage/v1/*` | Buckets `products` / `avatars`, volumen `supabase_storage_data` |
-| `supabase-meta` | `supabase/postgres-meta:v0.99.0` | interno :8080 | Solo para Studio |
-| `supabase-studio` | `supabase/studio:2026.09.04-sha-5a67366` | `${SUPABASE_STUDIO_PORT:-3002}` → 3000 | Panel `http://localhost:3002`, proyecto `refer` |
-
-> [!warning] Studio es solo admin/dev
-> Flutter nunca lo usa y Go no lo necesita. En prod restringir el puerto 3002 por red o proxy con auth.
 
 ## 3. Variables de entorno (`.env`)
 
@@ -78,9 +73,8 @@ graph LR
 | `PORT` / `HOST_PORT` | Puerto Go (`3000` / `3001`) |
 | `DATABASE_URL` | **DB principal** Supabase PG. Prioridad sobre `DB_*` |
 | `APP_DATABASE_URL` | Override de `DATABASE_URL` dentro del compose (red interna) |
-| `DB_HOST…DB_NAME` | PG legacy / fallback (hoy solo vía `LEGACY_DATABASE_URL` en migrador) |
-| `LEGACY_DATABASE_URL` | Origen del migrador |
-| `JWT_SECRET` | Valida sesiones legacy en transición |
+| `DB_HOST…DB_NAME` | PG Supabase (ver `DATABASE_URL`) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seed del admin (aprovisionado en Supabase Auth al arrancar) |
 | `SUPABASE_URL` | Auth para Go: compose `http://supabase-kong:8000`, local `http://localhost:8000` |
 | `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | anon (Go) / admin — **solo servidor, jamás Flutter/Git** |
 | `SUPABASE_JWT_SECRET` | Firma JWT Supabase (≥32 chars) |
@@ -113,7 +107,7 @@ Base: `/api/*`. Prefijo `🔒` = requiere JWT. `👑` = requiere rol `ADMIN`.
 | POST | `/api/auth/refresh` | Renueva tokens |
 | POST | `/api/auth/logout` | Invalida sesión |
 | POST 🔒 | `/api/auth/change-password` | Cambio con sesión |
-| GET 🔒 | `/api/auth/validate` | Valida JWT dual |
+| GET 🔒 | `/api/auth/validate` | Valida JWT Supabase |
 | GET 🔒 | `/api/auth/me` | Usuario actual |
 
 ### Users — `routes/user_routes.go`
@@ -131,7 +125,7 @@ Base: `/api/*`. Prefijo `🔒` = requiere JWT. `👑` = requiere rol `ADMIN`.
 
 ### Products — `routes/product_routes.go`
 
-Públicos: `GET /api/products/` · `/top-rated` · `/seasonal` (contrato legacy móvil, intacto) · `/categories` · `/sizes` · `/types` · `/enhancements` · `/:id`. Admin/modificación: `POST /` · `PATCH /:id` · `POST /upload` → `201 {imageUrl}` (bucket `products`) · CRUD `/categories/:id`, `/sizes/:id`, asignar `/:id/sizes`, `/:id/types`, `/:id/enhancements`.
+Públicos: `GET /api/products/` · `/top-rated` · `/seasonal` (contrato móvil, intacto) · `/categories` · `/sizes` · `/types` · `/enhancements` · `/:id`. Admin/modificación: `POST /` · `PATCH /:id` · `POST /upload` → `201 {imageUrl}` (bucket `products`) · CRUD `/categories/:id`, `/sizes/:id`, asignar `/:id/sizes`, `/:id/types`, `/:id/enhancements`.
 
 ### Collections — `routes/collection_routes.go`
 
@@ -183,7 +177,7 @@ Públicos: `GET /api/products/` · `/top-rated` · `/seasonal` (contrato legacy 
 - `location.go` · `app_setting.go` (config/version) · `role.go` · `dashboard.go` · `audit_log.go`
 - `auth.users.id == public.users.id` (UUID preservado; remap con cascada en `orders`, `star_transactions`, `redeemed_rewards`, `cart_items`, `users_roles` si Auth ignora el id)
 
-Seguridad/RLS (`supabase/rls.sql`): RLS habilitado en las 20 tablas **sin policies permisivas** → PostgREST directo denegado. Toda autorización vive en Go (JWT dual + `RequireRole("ADMIN")`). Aplicar solo tras `validate PASSED`: `make supabase-rls`.
+Seguridad/RLS (`supabase/rls.sql`): RLS habilitado en las 20 tablas **sin policies permisivas** → PostgREST directo denegado. Toda autorización vive en Go (JWT Supabase + `RequireRole("ADMIN")`). Aplicar una vez por entorno tras el primer arranque: `make supabase-rls`.
 
 ## 6. Auth — flujo OTP (Supabase Auth nativo + Resend)
 
@@ -194,7 +188,7 @@ Seguridad/RLS (`supabase/rls.sql`): RLS habilitado en las 20 tablas **sin polici
 
 Requiere `SUPABASE_MAILER_AUTOCONFIRM=false` + SMTP Resend válido. Plantilla en `supabase/templates/confirmation.html` (usa `{{ .Token }}`); Go la sirve en `/templates` y GoTrue la descarga por HTTP (`GOTRUE_MAILER_TEMPLATES_CONFIRMATION`).
 
-JWT dual (`middleware/jwt.go`): Supabase primero, fallback legacy para sesiones viejas; roles enriquecidos desde `public.users`.
+JWT Supabase (`middleware/jwt.go`): se valida contra `SUPABASE_JWT_SECRET`; roles enriquecidos desde `public.users`.
 
 ## 7. Uploads — Supabase Storage
 
@@ -202,7 +196,6 @@ JWT dual (`middleware/jwt.go`): Supabase primero, fallback legacy para sesiones 
 
 ```bash
 make supabase-storage-init  # buckets + policy (una vez por entorno)
-make migrate-uploads        # sube ./uploads/* y reescribe URLs en DB
 ```
 
 ## 8. Auditoría (módulo admin de refer_web)
@@ -221,19 +214,9 @@ make dev-docker       # compose watch
 make build / make run
 make supabase-up      # PG + Auth + REST + Kong
 make supabase-psql    # psql con DATABASE_URL
-make supabase-rls     # RLS deny-all (solo tras validate OK)
-make supabase-storage-init / make migrate-uploads
-
-# Migración Fase 2 (orden estricto, no destructiva, re-ejecutable):
-make migrate-backup   # pg_dump -Fc → ./backups (solo lectura)
-make migrate-plan     # dry-run sin escribir
-make migrate-apply    # schema+datos, auth.users, remap ids
-make migrate-validate # counts + FK huérfanas + parity → PASSED (si falla, no cutover)
-# variante manual: sh scripts/run-with-env.sh go run ./cmd/supabase-migrate -step=backup|migrate|validate
+make supabase-rls     # RLS deny-all (una vez por entorno, tras el primer arranque)
+make supabase-storage-init
 ```
-
-> [!note] Migración
-> Passwords no migran (bcrypt vs GoTrue): se crea aleatoria por usuario; con `-apply -send-recovery` se envía email para definirla. Cutover prod: setear `DATABASE_URL=<Supabase PG>`, probar API (Flutter sin cambios), y solo entonces retirar la DB vieja con backup previo.
 
 ## 10. Estructura del repo
 
@@ -245,19 +228,14 @@ handlers/  services/  repository/  routes/  # 12 módulos: auth, users, products
 models/  middleware/ (jwt, audit)  gateway/ (socket.io carrito)
 database/ (connect, migrate, seed admin@admin.com)
 supabase/ (kong.yml, rls.sql, storage.sql, templates/, init/)
-cmd/supabase-migrate     # backup → migrate → validate
-scripts/  backups/  uploads/  public/
+uploads/  public/
 Dockerfile (multi-stage Go 1.25 → alpine, non-root appuser)
 ```
 
 ## Referencias
 
-- Panel Studio: http://localhost:3002 (proyecto `refer`: Table Editor, Authentication → Users, SQL Editor)
 - Kong: http://localhost:8000 · Kong Auth health: http://localhost:8000/auth/v1/health
 - Ver también: [[Refer - Idea de Negocio]] ^referencias
 
 > [!todo] Pendientes / vigilar
 > - [ ] Rotar secrets de dev en prod (`openssl rand -hex 16` / `-base64 48`, re-firmar ANON/SERVICE_ROLE HS256 `iss: supabase-demo`)
-> - [ ] Restringir Studio `:3002` en prod
-> - [ ] Verificar `0 refs viejas` tras `migrate-uploads`
-> - [ ] No hacer cutover si `validate` ≠ PASSED

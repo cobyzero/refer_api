@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"strings"
 
@@ -54,22 +52,14 @@ type ChangePasswordRequest struct {
 	NewPassword     string `json:"newPassword"`
 }
 
-// AuthHandler coordinates HTTP logic with the AuthService.
+// AuthHandler coordinates HTTP logic with the AuthService (Supabase Auth).
 type AuthHandler struct {
-	authService services.AuthService
+	authService services.SessionAuthService
 }
 
 // NewAuthHandler constructs a new AuthHandler.
-func NewAuthHandler(authService services.AuthService) *AuthHandler {
+func NewAuthHandler(authService services.SessionAuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
-}
-
-func generateMockRefreshToken() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "mock-refresh-token"
-	}
-	return "mock-refresh-token-" + hex.EncodeToString(b)
 }
 
 func roleNames(user *models.User) []string {
@@ -96,79 +86,50 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Name, email, and password are required"})
 	}
 
-	// Supabase-backed services return a real refresh token; legacy falls back
-	// to the previous mock so existing Flutter sessions keep working.
-	if sessSvc, ok := h.authService.(services.SessionAuthService); ok {
-		user, session, err := sessSvc.RegisterWithSession(req.Name, req.Email, req.Password, req.KeepUpdated)
-		if err != nil {
-			// AUTOCONFIRM=false: account created, email OTP pending.
-			// 201 (not an error) so Flutter shows the verification screen.
-			if errors.Is(err, services.ErrEmailNotConfirmed) && user != nil {
-				middleware.AttachAudit(c, "auth.register.pending", "user", user.ID, map[string]interface{}{"email": user.Email})
-				return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-					"user": fiber.Map{
-						"id":          user.ID,
-						"name":        user.Name,
-						"email":       user.Email,
-						"keepUpdated": user.KeepUpdated,
-						"roles":       roleNames(user),
-					},
-					"needsVerification": true,
-					"message":           "Te enviamos un código de verificación. Revisa tu correo.",
-				})
-			}
-			if strings.Contains(err.Error(), "already exists") {
-				return c.Status(fiber.StatusConflict).JSON(fiber.Map{"message": err.Error()})
-			}
-			// Mailer outage (SMTP sin configurar, credenciales mal, caída del
-			// proveedor): 503 para que Flutter muestre "reintenta más tarde"
-			// en vez de un 500 genérico. El detalle queda en el log del server.
-			if errors.Is(err, supabase.ErrEmailServiceUnavailable) || supabase.IsMailerErr(err) {
-				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-					"message": "No pudimos enviar el correo de verificación. Inténtalo de nuevo en unos minutos.",
-					"code":    "EMAIL_SERVICE_UNAVAILABLE",
-				})
-			}
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
-		}
-		middleware.AttachAudit(c, "auth.register", "user", user.ID, map[string]interface{}{"email": user.Email})
-		return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-			"user": fiber.Map{
-				"id":          user.ID,
-				"name":        user.Name,
-				"email":       user.Email,
-				"keepUpdated": user.KeepUpdated,
-				"roles":       roleNames(user),
-			},
-			"accessToken":  session.AccessToken,
-			"refreshToken": session.RefreshToken,
-		})
-	}
-
-	user, token, err := h.authService.Register(req.Name, req.Email, req.Password, req.KeepUpdated)
+	// Supabase returns a real session pair {accessToken, refreshToken}.
+	user, session, err := h.authService.RegisterWithSession(req.Name, req.Email, req.Password, req.KeepUpdated)
 	if err != nil {
+		// AUTOCONFIRM=false: account created, email OTP pending.
+		// 201 (not an error) so Flutter shows the verification screen.
+		if errors.Is(err, services.ErrEmailNotConfirmed) && user != nil {
+			middleware.AttachAudit(c, "auth.register.pending", "user", user.ID, map[string]interface{}{"email": user.Email})
+			return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+				"user": fiber.Map{
+					"id":          user.ID,
+					"name":        user.Name,
+					"email":       user.Email,
+					"keepUpdated": user.KeepUpdated,
+					"roles":       roleNames(user),
+				},
+				"needsVerification": true,
+				"message":           "Te enviamos un código de verificación. Revisa tu correo.",
+			})
+		}
 		if strings.Contains(err.Error(), "already exists") {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"message": err.Error()})
+		}
+		// Mailer outage (SMTP sin configurar, credenciales mal, caída del
+		// proveedor): 503 para que Flutter muestre "reintenta más tarde"
+		// en vez de un 500 genérico. El detalle queda en el log del server.
+		if errors.Is(err, supabase.ErrEmailServiceUnavailable) || supabase.IsMailerErr(err) {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"message": "No pudimos enviar el correo de verificación. Inténtalo de nuevo en unos minutos.",
+				"code":    "EMAIL_SERVICE_UNAVAILABLE",
+			})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
 	middleware.AttachAudit(c, "auth.register", "user", user.ID, map[string]interface{}{"email": user.Email})
-
-	var rolesList []string
-	for _, r := range user.Roles {
-		rolesList = append(rolesList, r.Name)
-	}
-
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"user": fiber.Map{
 			"id":          user.ID,
 			"name":        user.Name,
 			"email":       user.Email,
 			"keepUpdated": user.KeepUpdated,
-			"roles":       rolesList,
+			"roles":       roleNames(user),
 		},
-		"accessToken":  token,
-		"refreshToken": generateMockRefreshToken(),
+		"accessToken":  session.AccessToken,
+		"refreshToken": session.RefreshToken,
 	})
 }
 
@@ -180,53 +141,21 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
 	}
 
-	if sessSvc, ok := h.authService.(services.SessionAuthService); ok {
-		user, session, err := sessSvc.LoginWithSession(req.Email, req.Password)
-		if err != nil {
-			// Unverified account: 403 (not 401) so Flutter routes to the
-			// OTP screen instead of showing "wrong password".
-			if errors.Is(err, services.ErrEmailNotConfirmed) {
-				middleware.AttachAudit(c, "auth.login.unverified", "user", "", map[string]interface{}{"email": req.Email})
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"message": "Tu correo aún no está verificado. Revisa tu bandeja e ingresa el código.",
-					"code":    "EMAIL_NOT_VERIFIED",
-				})
-			}
-			middleware.AttachAudit(c, "auth.login.failed", "user", "", map[string]interface{}{"email": req.Email})
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": err.Error()})
-		}
-		refresh := session.RefreshToken
-		if refresh == "" {
-			// Transitional legacy fallback login: keep previous shape.
-			refresh = generateMockRefreshToken()
-		}
-		middleware.AttachAudit(c, "auth.login", "user", user.ID, map[string]interface{}{"email": user.Email})
-		return c.JSON(fiber.Map{
-			"user": fiber.Map{
-				"id":          user.ID,
-				"name":        user.Name,
-				"email":       user.Email,
-				"keepUpdated": user.KeepUpdated,
-				"photoUrl":    user.PhotoURL,
-				"roles":       roleNames(user),
-			},
-			"accessToken":  session.AccessToken,
-			"refreshToken": refresh,
-		})
-	}
-
-	user, token, err := h.authService.Login(req.Email, req.Password)
+	user, session, err := h.authService.LoginWithSession(req.Email, req.Password)
 	if err != nil {
+		// Unverified account: 403 (not 401) so Flutter routes to the
+		// OTP screen instead of showing "wrong password".
+		if errors.Is(err, services.ErrEmailNotConfirmed) {
+			middleware.AttachAudit(c, "auth.login.unverified", "user", "", map[string]interface{}{"email": req.Email})
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"message": "Tu correo aún no está verificado. Revisa tu bandeja e ingresa el código.",
+				"code":    "EMAIL_NOT_VERIFIED",
+			})
+		}
 		middleware.AttachAudit(c, "auth.login.failed", "user", "", map[string]interface{}{"email": req.Email})
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": err.Error()})
 	}
 	middleware.AttachAudit(c, "auth.login", "user", user.ID, map[string]interface{}{"email": user.Email})
-
-	var rolesList []string
-	for _, r := range user.Roles {
-		rolesList = append(rolesList, r.Name)
-	}
-
 	return c.JSON(fiber.Map{
 		"user": fiber.Map{
 			"id":          user.ID,
@@ -234,10 +163,10 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 			"email":       user.Email,
 			"keepUpdated": user.KeepUpdated,
 			"photoUrl":    user.PhotoURL,
-			"roles":       rolesList,
+			"roles":       roleNames(user),
 		},
-		"accessToken":  token,
-		"refreshToken": generateMockRefreshToken(),
+		"accessToken":  session.AccessToken,
+		"refreshToken": session.RefreshToken,
 	})
 }
 
@@ -301,40 +230,23 @@ func (h *AuthHandler) VerifyEmail(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Email and code are required"})
 	}
 
-	if sessSvc, ok := h.authService.(services.SessionAuthService); ok {
-		user, session, err := sessSvc.VerifyEmailWithSession(req.Email, req.Code)
-		if err != nil {
-			middleware.AttachAudit(c, "auth.verify.failed", "user", "", map[string]interface{}{"email": req.Email})
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
-		}
-		middleware.AttachAudit(c, "auth.verify", "user", user.ID, map[string]interface{}{"email": user.Email})
-		return c.JSON(fiber.Map{
-			"user": fiber.Map{
-				"id":          user.ID,
-				"name":        user.Name,
-				"email":       user.Email,
-				"keepUpdated": user.KeepUpdated,
-				"photoUrl":    user.PhotoURL,
-				"roles":       roleNames(user),
-			},
-			"accessToken":  session.AccessToken,
-			"refreshToken": session.RefreshToken,
-		})
-	}
-
-	user, token, err := h.authService.VerifyEmail(req.Email, req.Code)
+	user, session, err := h.authService.VerifyEmailWithSession(req.Email, req.Code)
 	if err != nil {
+		middleware.AttachAudit(c, "auth.verify.failed", "user", "", map[string]interface{}{"email": req.Email})
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
 	}
 	middleware.AttachAudit(c, "auth.verify", "user", user.ID, map[string]interface{}{"email": user.Email})
 	return c.JSON(fiber.Map{
 		"user": fiber.Map{
-			"id":    user.ID,
-			"name":  user.Name,
-			"email": user.Email,
+			"id":          user.ID,
+			"name":        user.Name,
+			"email":       user.Email,
+			"keepUpdated": user.KeepUpdated,
+			"photoUrl":    user.PhotoURL,
+			"roles":       roleNames(user),
 		},
-		"accessToken":  token,
-		"refreshToken": generateMockRefreshToken(),
+		"accessToken":  session.AccessToken,
+		"refreshToken": session.RefreshToken,
 	})
 }
 
@@ -376,44 +288,33 @@ func (h *AuthHandler) ResendVerification(c *fiber.Ctx) error {
 	})
 }
 
-// Refresh exchanges a refresh token for a new pair.
-// Legacy contract preserved: {refreshToken} -> {accessToken, refreshToken}.
-// With Supabase configured the pair is real; otherwise the previous mock
-// behavior is kept so Flutter does not break during transition.
+// Refresh exchanges a Supabase refresh token for a new pair.
+// Contract: {refreshToken} -> {accessToken, refreshToken}.
 func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	var req RefreshTokenRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
 	}
 
-	if sessSvc, ok := h.authService.(services.SessionAuthService); ok {
-		session, err := sessSvc.RefreshSession(req.RefreshToken)
-		if err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": err.Error()})
-		}
-		return c.JSON(fiber.Map{
-			"accessToken":  session.AccessToken,
-			"refreshToken": session.RefreshToken,
-		})
+	session, err := h.authService.RefreshSession(req.RefreshToken)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": err.Error()})
 	}
-
 	return c.JSON(fiber.Map{
-		"accessToken":  "new-mock-access-token",
-		"refreshToken": req.RefreshToken,
+		"accessToken":  session.AccessToken,
+		"refreshToken": session.RefreshToken,
 	})
 }
 
 // Logout revokes the current session. Always 200 so Flutter logout never
 // fails visibly; token is taken from Authorization when present.
 func (h *AuthHandler) Logout(c *fiber.Ctx) error {
-	if sessSvc, ok := h.authService.(services.SessionAuthService); ok {
-		auth := c.Get("Authorization")
-		accessToken := ""
-		if parts := strings.Split(auth, " "); len(parts) == 2 {
-			accessToken = parts[1]
-		}
-		_ = sessSvc.Logout(accessToken)
+	auth := c.Get("Authorization")
+	accessToken := ""
+	if parts := strings.Split(auth, " "); len(parts) == 2 {
+		accessToken = parts[1]
 	}
+	_ = h.authService.Logout(accessToken)
 	return c.JSON(fiber.Map{"message": "Logged out successfully"})
 }
 

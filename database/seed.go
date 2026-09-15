@@ -8,12 +8,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // EnsureAdmin creates the default admin user once (idempotent).
-// Email: admin@admin.com  Password: admin123@
-func EnsureAdmin(db *bun.DB) error {
+// The admin signs in via Supabase Auth: authUserID must be the auth.users.id
+// provisioned beforehand (e.g. via Supabase EnsureUser), so public.users
+// mirrors it and FKs stay consistent. An empty authUserID keeps a random UUID
+// (local-only, cannot sign in until provisioned).
+// Default credentials: admin@admin.com / admin123@ (override via ADMIN_EMAIL /
+// ADMIN_PASSWORD env when provisioning).
+func EnsureAdmin(db *bun.DB, authUserID string) error {
 	ctx := context.Background()
 
 	// 1. Ensure ADMIN role exists
@@ -51,16 +55,17 @@ func EnsureAdmin(db *bun.DB) error {
 		return nil
 	}
 
-	hashed, err := bcrypt.GenerateFromPassword([]byte("admin123@"), 10)
-	if err != nil {
-		return err
+	// Passwords live in Supabase Auth only: no local hash is stored.
+	adminID := authUserID
+	if adminID == "" {
+		adminID = uuid.New().String()
 	}
 
 	admin := &models.User{
-		ID:          uuid.New().String(),
+		ID:          adminID,
 		Name:        "Admin",
 		Email:       "admin@admin.com",
-		Password:    string(hashed),
+		Password:    "",
 		KeepUpdated: true,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -82,5 +87,5 @@ func EnsureAdmin(db *bun.DB) error {
 
 // Seed is kept for backwards compatibility but now just ensures admin (no mock data, no wipe).
 func Seed(db *bun.DB) error {
-	return EnsureAdmin(db)
+	return EnsureAdmin(db, "")
 }

@@ -35,7 +35,7 @@ func withEnv(t *testing.T, kv map[string]string, fn func()) {
 	fn()
 }
 
-func TestBuildDSN_LegacyParts(t *testing.T) {
+func TestBuildDSN_DBParts(t *testing.T) {
 	withEnv(t, map[string]string{
 		"DB_USERNAME": "postgres",
 		"DB_PASSWORD": "pw",

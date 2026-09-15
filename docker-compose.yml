@@ -25,8 +25,8 @@ services:
   # ============================================================
   # SUPABASE SELF-HOSTED (lean: PostgreSQL + Auth + PostgREST + Kong)
   # Arquitectura: Flutter -> Go -> Kong (:8000) -> Auth/PostgREST -> PG.
-  # Flutter NUNCA habla con Supabase directo (sin Studio/Storage/Realtime).
-  # Para usar el PG de Supabase como DB principal (Fase 2):
+  # Flutter NUNCA habla con Supabase directo (solo Go vía Kong).
+  # El PG de Supabase es la DB principal (data desde cero, sin migraciones):
   #   DB_HOST=supabase-db DB_PORT=5432 DB_NAME=postgres
   #   DB_USERNAME=postgres DB_PASSWORD=${SUPABASE_POSTGRES_PASSWORD}
   # ============================================================
@@ -171,66 +171,6 @@ services:
     networks:
       - refer_network
 
-  # --- Panel (Studio dashboard) http://localhost:3002 ---
-  # Opcional: no lo necesita la app (Go es el único cliente).
-  supabase-meta:
-    image: supabase/postgres-meta:v0.99.0
-    container_name: refer_supabase_meta
-    restart: unless-stopped
-    depends_on:
-      supabase-db:
-        condition: service_healthy
-    environment:
-      PG_META_PORT: 8080
-      PG_META_DB_HOST: supabase-db
-      PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: postgres
-      PG_META_DB_USER: supabase_admin
-      PG_META_DB_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
-      PG_META_CRYPTO_KEY: ${SUPABASE_PG_META_CRYPTO_KEY:-dev-meta-crypto-key-0123456789abcdef}
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-    networks:
-      - refer_network
-
-  supabase-studio:
-    image: supabase/studio:2026.09.04-sha-5a67366
-    container_name: refer_supabase_studio
-    restart: unless-stopped
-    depends_on:
-      supabase-meta:
-        condition: service_healthy
-      supabase-kong:
-        condition: service_healthy
-    environment:
-      STUDIO_PG_META_URL: http://supabase-meta:8080
-      SUPABASE_URL: http://supabase-kong:8000
-      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      POSTGRES_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
-      # Studio construye su connection string a PG con estas vars
-      # (default oficial: host `db`; el nuestro es `supabase-db`).
-      POSTGRES_HOST: supabase-db
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: postgres
-      DEFAULT_ORGANIZATION_NAME: Refer App
-      DEFAULT_PROJECT_NAME: refer
-    ports:
-      - "${SUPABASE_STUDIO_PORT:-3002}:3000"
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://'+require('os').hostname()+':3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-    networks:
-      - refer_network
-
   app:
     build:
       context: .
@@ -245,17 +185,17 @@ services:
     env_file:
       - .env
     environment:
-      # Usa DB_HOST/DB_PORT del Environment de Dokploy (ej. 149.202.62.87:5435 o host.docker.internal:5435)
+      # Usa DB_HOST/DB_PORT del Environment de Dokploy si se apunta a un PG externo.
       DB_HOST: ${DB_HOST:-host.docker.internal}
       DB_PORT: ${DB_PORT:-5432}
       DB_SSLMODE: disable
-      # Cutover Fase 2: dentro del compose, Go usa el PG de Supabase por red
-      # interna (tiene prioridad sobre DB_*). Para forzar otra DB (legacy u
-      # otra), setea APP_DATABASE_URL explícito (ej. en el Environment de Dokploy).
+      # Dentro del compose, Go usa el PG de Supabase por red
+      # interna (tiene prioridad sobre DB_*). Para forzar otra DB,
+      # setea APP_DATABASE_URL explícito (ej. en el Environment de Dokploy).
       # OJO: .env trae DATABASE_URL=localhost:... para `go run` local; este
       # override manda dentro del container (environment: gana a env_file).
       DATABASE_URL: ${APP_DATABASE_URL:-postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?sslmode=disable}
-      # Supabase Auth adapter (Fase 1): dentro del compose, Go habla con Kong
+      # Supabase Auth: dentro del compose, Go habla con Kong
       # por red interna. `go run` local usa el SUPABASE_URL del .env
       # (http://localhost:8000). Override explícito: APP_SUPABASE_URL.
       SUPABASE_URL: ${APP_SUPABASE_URL:-http://supabase-kong:8000}

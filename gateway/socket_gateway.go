@@ -54,11 +54,11 @@ var Instance SocketGateway
 // clientSessionStore stores session metadata (like userId and roles) linked to client socket IDs.
 var clientSessionStore sync.Map
 
-// validateSocketToken validates legacy or Supabase JWTs (dual, same rule as
-// the HTTP middleware) and enriches app roles from DB when the token carries
-// none (Supabase JWTs never include our ADMIN/USER roles).
+// validateSocketToken validates the Supabase JWT (same rule as the HTTP
+// middleware) and enriches app roles from DB when the token carries none
+// (Supabase JWTs never include our ADMIN/USER roles).
 func validateSocketToken(tokenStr string) (userID string, roles []string, err error) {
-	claims, err := utils.ValidateAnyToken(tokenStr)
+	claims, err := utils.ValidateToken(tokenStr)
 	if err != nil {
 		return "", nil, err
 	}

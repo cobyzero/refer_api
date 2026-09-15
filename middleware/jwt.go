@@ -75,9 +75,9 @@ func JWTProtected() fiber.Handler {
 		}
 
 		tokenString := parts[1]
-		// Dual validation: Supabase JWT first (when SUPABASE_JWT_SECRET is set),
-		// legacy JWT_SECRET as fallback so existing Flutter sessions survive.
-		claims, err := utils.ValidateAnyToken(tokenString)
+		// Supabase Auth is the only issuer: validate the JWT against
+		// SUPABASE_JWT_SECRET (sub = auth.users.id).
+		claims, err := utils.ValidateToken(tokenString)
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Invalid or expired token",
@@ -90,7 +90,6 @@ func JWTProtected() fiber.Handler {
 		c.Locals("userId", claims.UserID)
 		c.Locals("email", claims.Email)
 		c.Locals("roles", roles)
-		c.Locals("authProvider", string(claims.Provider))
 
 		return c.Next()
 	}

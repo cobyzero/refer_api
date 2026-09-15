@@ -2,8 +2,8 @@
 #
 # Auth + PostgREST + Storage are exposed because the architecture is:
 #   Flutter -> Go -> Kong -> (Auth | PostgREST | Storage)
-# Flutter NEVER talks to Supabase directly, so no Studio/Realtime routes are
-# published. JWTs are validated by GoTrue / PostgREST / Storage themselves
+# Flutter NEVER talks to Supabase directly, so only Auth/PostgREST/Storage
+# routes are published. JWTs are validated by GoTrue / PostgREST / Storage themselves
 # (HS256, SUPABASE_JWT_SECRET); Kong only routes + CORS.
 
 _format_version: "1.1"

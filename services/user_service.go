@@ -8,7 +8,6 @@ import (
 	"refer_api/repository"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // UserService defines the business logic interface for managing users.
@@ -25,11 +24,27 @@ type UserService interface {
 
 type userService struct {
 	userRepo repository.UserRepository
+	auth     AuthProvisioner
 }
 
-// NewUserService constructs a new UserService instance.
-func NewUserService(userRepo repository.UserRepository) UserService {
-	return &userService{userRepo: userRepo}
+// AuthProvisioner mirrors operator-managed accounts in Supabase Auth so they
+// can sign in immediately. Implemented by *supabase.Client.
+type AuthProvisioner interface {
+	EnsureUser(email, password, name string) (string, error)
+	AdminGetUserByEmail(email string) (string, error)
+	AdminUpdatePassword(authUserID, newPassword string) error
+	AdminDeleteUser(authUserID string) error
+}
+
+// NewUserService constructs a new UserService instance. The optional
+// AuthProvisioner (Supabase client) is required for Create/Update with a
+// password and for Delete cleanup; without it those operations fail loudly.
+func NewUserService(userRepo repository.UserRepository, auth ...AuthProvisioner) UserService {
+	s := &userService{userRepo: userRepo}
+	if len(auth) > 0 {
+		s.auth = auth[0]
+	}
+	return s
 }
 
 func (s *userService) GetProfile(userID string) (*models.User, int, error) {
@@ -104,15 +119,19 @@ func (s *userService) Create(userData map[string]interface{}, roleNames []string
 		return nil, errors.New("email is required")
 	}
 
-	var hashedPassword string
+	if s.auth == nil {
+		return nil, errors.New("supabase auth provisioner is required to create users")
+	}
 	if password == "" {
 		password = "password123"
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+	// Supabase Auth owns the credentials: provision (confirmed) first and
+	// mirror its id, so the account can sign in immediately. Passwords are
+	// never stored locally.
+	authID, err := s.auth.EnsureUser(email, password, name)
 	if err != nil {
 		return nil, err
 	}
-	hashedPassword = string(hashed)
 
 	var roles []models.Role
 	if len(roleNames) > 0 {
@@ -134,10 +153,10 @@ func (s *userService) Create(userData map[string]interface{}, roleNames []string
 	}
 
 	user := &models.User{
-		ID:          uuid.New().String(),
+		ID:          authID,
 		Name:        name,
 		Email:       email,
-		Password:    hashedPassword,
+		Password:    "",
 		KeepUpdated: keepUpdated,
 		Roles:       roles,
 		CreatedAt:   time.Now(),
@@ -166,6 +185,7 @@ func (s *userService) Update(id string, userData map[string]interface{}, roleNam
 	if err != nil {
 		return nil, err
 	}
+	oldEmail := user.Email
 
 	if name, ok := userData["name"].(string); ok && name != "" {
 		user.Name = name
@@ -174,11 +194,24 @@ func (s *userService) Update(id string, userData map[string]interface{}, roleNam
 		user.Email = email
 	}
 	if password, ok := userData["password"].(string); ok && password != "" {
-		hashed, err := bcrypt.GenerateFromPassword([]byte(password), 10)
-		if err != nil {
+		if s.auth == nil {
+			return nil, errors.New("supabase auth provisioner is required to set passwords")
+		}
+		// Resolve the Supabase account by the previous email; if it has no
+		// auth row yet, provision one (same pattern as login auto-create).
+		// The public.users.id never changes, so FKs are untouched.
+		authID, resolveErr := s.auth.AdminGetUserByEmail(oldEmail)
+		if resolveErr != nil || authID == "" {
+			var ensureErr error
+			authID, ensureErr = s.auth.EnsureUser(user.Email, password, user.Name)
+			if ensureErr != nil {
+				return nil, ensureErr
+			}
+		}
+		if err := s.auth.AdminUpdatePassword(authID, password); err != nil {
 			return nil, err
 		}
-		user.Password = string(hashed)
+		user.Password = ""
 	}
 	if keepUpdated, ok := userData["keepUpdated"].(bool); ok {
 		user.KeepUpdated = keepUpdated
@@ -211,5 +244,16 @@ func (s *userService) Update(id string, userData map[string]interface{}, roleNam
 }
 
 func (s *userService) Delete(id string) error {
+	user, err := s.userRepo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	// Best-effort Supabase cleanup so the deleted account cannot sign in.
+	// The local row is always removed, even if Auth cleanup fails.
+	if s.auth != nil && user != nil {
+		if authID, resolveErr := s.auth.AdminGetUserByEmail(user.Email); resolveErr == nil && authID != "" {
+			_ = s.auth.AdminDeleteUser(authID)
+		}
+	}
 	return s.userRepo.Delete(id)
 }

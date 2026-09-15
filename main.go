@@ -40,33 +40,45 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	// Ensure single admin user exists (admin@admin.com / admin123@) — created once, idempotent
-	if err := database.EnsureAdmin(database.DB); err != nil {
-		log.Fatalf("Failed to ensure admin user: %v", err)
-	}
-
 	// Initialize SocketGateway
 	socketGateway := gateway.InitSocketGateway()
+
+	// Supabase Auth is the only auth flow: refuse to boot without it.
+	supaCfg := supabase.LoadConfig()
+	if err := supaCfg.Validate(); err != nil {
+		log.Fatalf("Supabase Auth is required: %v", err)
+	}
+	supaClient := supabase.NewClient(supaCfg)
+	log.Println("Supabase Auth enabled")
+
+	// Provision the seed admin in Supabase Auth, then mirror it in
+	// public.users with the same id (idempotent, created once).
+	adminEmail := os.Getenv("ADMIN_EMAIL")
+	if adminEmail == "" {
+		adminEmail = "admin@admin.com"
+	}
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = "admin123@"
+	}
+	authAdminID, err := supaClient.EnsureUser(adminEmail, adminPassword, "Admin")
+	if err != nil {
+		log.Fatalf("Failed to provision Supabase admin user: %v", err)
+	}
+	if err := database.EnsureAdmin(database.DB, authAdminID); err != nil {
+		log.Fatalf("Failed to ensure admin user: %v", err)
+	}
 
 	// Initialize Layers (Clean Architecture)
 	userRepo := repository.NewUserRepository(database.DB)
 	configRepo := repository.NewConfigRepository(database.DB)
-	var authService services.AuthService = services.NewAuthService(userRepo)
-	// Supabase Auth adapter (Fase 1): when SUPABASE_URL + SUPABASE_ANON_KEY are
-	// set, Go delegates to Supabase Auth behind the same Flutter contract.
-	// Otherwise the legacy flow is kept untouched (zero-risk fallback).
 	// Se inyecta configRepo para que registro/recuperación respeten los toggles
 	// smtp_enabled/signup_email_enabled/recovery_email_enabled del módulo de
 	// configuraciones (refer_web): si se deshabilitan, no se aplica SMTP.
-	if supaCfg := supabase.LoadConfig(); supaCfg.Enabled() {
-		log.Println("Supabase Auth adapter enabled")
-		authService = services.NewSupabaseAuthService(userRepo, supabase.NewClient(supaCfg), supaCfg, configRepo)
-	} else {
-		log.Println("Supabase Auth not configured; using legacy auth")
-	}
+	authService := services.NewSupabaseAuthService(userRepo, supaClient, supaCfg, configRepo)
 	authHandler := handlers.NewAuthHandler(authService)
 
-	userService := services.NewUserService(userRepo)
+	userService := services.NewUserService(userRepo, supaClient)
 	userHandler := handlers.NewUserHandler(userService)
 
 	productRepo := repository.NewProductRepository(database.DB)

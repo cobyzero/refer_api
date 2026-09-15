@@ -80,7 +80,7 @@ func IsNotConfirmedErr(err error) bool {
 }
 
 // Session is the Supabase Auth session returned to the caller.
-// Go adapts it to the legacy Flutter contract {accessToken, refreshToken}.
+// Go adapts it to the Flutter contract {accessToken, refreshToken}.
 type Session struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -449,7 +449,7 @@ func (c *Client) AdminDeleteUser(authUserID string) error {
 }
 
 // AdminGetUserByEmail looks up an auth user by email (service role).
-// Used during migration to map legacy users to auth.users.id.
+// Used to resolve the auth.users.id for a public.users email.
 func (c *Client) AdminGetUserByEmail(email string) (string, error) {
 	users, err := c.AdminListUsers()
 	if err != nil {
@@ -514,9 +514,9 @@ func (c *Client) AdminListUsers() ([]AuthUser, error) {
 
 // AdminCreateUser creates an auth.users row (service role) and returns its id.
 // userID is attempted as the new id so public.users FKs keep working without
-// remap; when the server ignores it, the caller must remap (see migrator).
-// Passwords CANNOT be migrated (legacy bcrypt vs GoTrue) — pass a random one
-// and send a recovery email so the user sets their own.
+// remap; when the server ignores it, the caller mirrors with the returned id.
+// The account is created with the given password; combine with AdminConfirmEmail
+// (or emailConfirm=true) plus a recovery email when the user must set their own.
 func (c *Client) AdminCreateUser(email, password, name, userID string, emailConfirm bool) (string, error) {
 	if !c.cfg.HasAdminKey() {
 		return "", fmt.Errorf("supabase service role key is not configured")
@@ -553,4 +553,14 @@ func (c *Client) AdminCreateUser(email, password, name, userID string, emailConf
 		return "", fmt.Errorf("admin create did not return a user id: %s", string(data))
 	}
 	return created.ID, nil
+}
+
+// EnsureUser returns the auth.users.id for email, creating a confirmed user
+// when missing. Used for operator-provisioned accounts (seed admin, refer_web
+// admin creates) so they can sign in immediately without an OTP round-trip.
+func (c *Client) EnsureUser(email, password, name string) (string, error) {
+	if id, err := c.AdminGetUserByEmail(email); err == nil && id != "" {
+		return id, nil
+	}
+	return c.AdminCreateUser(email, password, name, "", true)
 }

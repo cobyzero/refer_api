@@ -1,4 +1,4 @@
-.PHONY: dev dev-docker build run watch help install-air migrate-backup migrate-plan migrate-apply migrate-validate supabase-up supabase-psql supabase-rls supabase-storage-init migrate-uploads
+.PHONY: dev dev-docker build run watch help install-air supabase-up supabase-psql supabase-rls supabase-storage-init
 
 AIR := $(HOME)/go/bin/air
 
@@ -12,14 +12,8 @@ help:
 	@echo "  Supabase self-hosted:"
 	@echo "  make supabase-up       - levanta PG + Auth + PostgREST + Kong (espera healthy)"
 	@echo "  make supabase-psql     - psql contra el PG de Supabase (requiere DATABASE_URL)"
-	@echo "  make supabase-rls      - aplica RLS restrictivo (SOLO tras validate OK)"
+	@echo "  make supabase-rls      - aplica RLS restrictivo (tras el primer arranque)"
 	@echo "  make supabase-storage-init - crea buckets + policy lectura pública"
-	@echo "  make migrate-uploads   - sube ./uploads a Storage y reescribe URLs en DB"
-	@echo "  Migración Fase 2 (orden: backup -> plan -> apply -> validate):"
-	@echo "  make migrate-backup    - pg_dump -Fc de la DB legacy a ./backups (solo lectura)"
-	@echo "  make migrate-plan      - dry-run: muestra counts y pasos sin escribir nada"
-	@echo "  make migrate-apply     - restaura schema+datos, sincroniza auth.users, remapea ids"
-	@echo "  make migrate-validate  - reporte parity: counts, FK huérfanas, auth vs public"
 
 install-air:
 	@if [ ! -x "$(AIR)" ]; then \
@@ -65,20 +59,3 @@ supabase-storage-init:
 	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL requerido" && exit 1)
 	@echo "Creando buckets + policy de lectura pública..."
 	psql "$(DATABASE_URL)" -f supabase/storage.sql
-
-migrate-uploads:
-	sh scripts/run-with-env.sh sh scripts/migrate-uploads.sh
-
-# --- Migración Fase 2 (no destructiva: legacy nunca se escribe ni se borra) ---
-
-migrate-backup:
-	go run ./cmd/supabase-migrate -step=backup
-
-migrate-plan:
-	go run ./cmd/supabase-migrate -step=migrate
-
-migrate-apply:
-	go run ./cmd/supabase-migrate -step=migrate -apply
-
-migrate-validate:
-	go run ./cmd/supabase-migrate -step=validate

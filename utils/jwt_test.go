@@ -3,48 +3,72 @@ package utils
 import (
 	"os"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
-func TestJWTGenerateAndValidate(t *testing.T) {
-	os.Setenv("JWT_SECRET", "test-secret-key-999")
-	defer os.Unsetenv("JWT_SECRET")
-
-	userID := "12345"
-	email := "test@example.com"
-	roles := []string{"USER", "ADMIN"}
-
-	// 1. Generate Token
-	token, err := GenerateToken(userID, email, roles)
+// signTestToken mints a Supabase-shaped JWT with the test secret.
+func signTestToken(t *testing.T, secret, userID, email string, roles []string) string {
+	t.Helper()
+	claims := JWTClaims{
+		Sub:   userID,
+		Email: email,
+		Roles: roles,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
 	if err != nil {
-		t.Fatalf("Expected no error during token generation, got: %v", err)
+		t.Fatalf("failed to sign test token: %v", err)
 	}
-	if token == "" {
-		t.Fatal("Expected token string to be non-empty")
-	}
+	return token
+}
 
-	// 2. Validate Token
-	claims, err := ValidateToken(token)
+func TestValidateToken_SupabaseOK(t *testing.T) {
+	secret := "test-supabase-jwt-secret-0123456789"
+	os.Setenv("SUPABASE_JWT_SECRET", secret)
+	defer os.Unsetenv("SUPABASE_JWT_SECRET")
+
+	token := signTestToken(t, secret, "u1", "a@a.com", []string{"USER"})
+
+	got, err := ValidateToken(token)
 	if err != nil {
-		t.Fatalf("Expected token to be valid, got validation error: %v", err)
+		t.Fatalf("expected valid token, got: %v", err)
 	}
-
-	if claims.Sub != userID {
-		t.Errorf("Expected Subject %s, got %s", userID, claims.Sub)
+	if got.UserID != "u1" || got.Email != "a@a.com" {
+		t.Errorf("unexpected claims: %+v", got)
 	}
-	if claims.Email != email {
-		t.Errorf("Expected Email %s, got %s", email, claims.Email)
-	}
-	if len(claims.Roles) != 2 || claims.Roles[0] != "USER" || claims.Roles[1] != "ADMIN" {
-		t.Errorf("Expected roles ['USER', 'ADMIN'], got %v", claims.Roles)
+	if len(got.Roles) != 1 || got.Roles[0] != "USER" {
+		t.Errorf("unexpected roles: %v", got.Roles)
 	}
 }
 
-func TestJWTValidateInvalidToken(t *testing.T) {
-	os.Setenv("JWT_SECRET", "test-secret-key-999")
-	defer os.Unsetenv("JWT_SECRET")
+func TestValidateToken_WrongSecret(t *testing.T) {
+	os.Setenv("SUPABASE_JWT_SECRET", "correct-secret-0123456789abcdef")
+	defer os.Unsetenv("SUPABASE_JWT_SECRET")
 
-	_, err := ValidateToken("invalid-token-string")
-	if err == nil {
-		t.Fatal("Expected error when validating invalid token string, got nil")
+	token := signTestToken(t, "other-secret-0123456789abcdef", "u1", "a@a.com", nil)
+	if _, err := ValidateToken(token); err == nil {
+		t.Fatal("expected error for token signed with another secret, got nil")
+	}
+}
+
+func TestValidateToken_Invalid(t *testing.T) {
+	os.Setenv("SUPABASE_JWT_SECRET", "test-secret-0123456789abcdef")
+	defer os.Unsetenv("SUPABASE_JWT_SECRET")
+
+	if _, err := ValidateToken("invalid-token"); err == nil {
+		t.Fatal("expected error for invalid token string, got nil")
+	}
+}
+
+func TestValidateToken_MissingSecret(t *testing.T) {
+	os.Unsetenv("SUPABASE_JWT_SECRET")
+
+	if _, err := ValidateToken("anything"); err == nil {
+		t.Fatal("expected error when SUPABASE_JWT_SECRET is missing, got nil")
 	}
 }

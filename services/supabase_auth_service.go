@@ -11,8 +11,6 @@ import (
 	"refer_api/repository"
 	"refer_api/supabase"
 	"refer_api/utils"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthSession is the token pair returned to Flutter.
@@ -22,9 +20,8 @@ type AuthSession struct {
 	RefreshToken string
 }
 
-// SessionAuthService is implemented by auth services that can return real
-// Supabase sessions. Handlers type-assert to it and fall back to the legacy
-// mock-refresh behavior when it is not available.
+// SessionAuthService is implemented by the Supabase-backed auth service,
+// which returns real Supabase sessions behind the Flutter contract.
 type SessionAuthService interface {
 	AuthService
 	RegisterWithSession(name, email, password string, keepUpdated bool) (*models.User, AuthSession, error)
@@ -46,13 +43,10 @@ type supabaseAuthService struct {
 	userRepo   repository.UserRepository
 	supabase   *supabase.Client
 	cfg        supabase.Config
-	fallback   AuthService
 	configRepo repository.ConfigRepository
 }
 
 // NewSupabaseAuthService builds the Supabase-backed AuthService.
-// fallback is used for transitional dual-write (legacy bcrypt + reset codes)
-// so existing users keep working before the data migration (Fase 2).
 // configRepo is optional (variadic for backwards-compat in tests): when
 // provided, los toggles smtp_enabled/signup_email_enabled/recovery_email_enabled
 // de app_settings se respetan (si el operador los deshabilita en refer_web,
@@ -62,7 +56,6 @@ func NewSupabaseAuthService(userRepo repository.UserRepository, client *supabase
 		userRepo: userRepo,
 		supabase: client,
 		cfg:      cfg,
-		fallback: NewAuthService(userRepo),
 	}
 	if len(configRepo) > 0 {
 		svc.configRepo = configRepo[0]
@@ -420,16 +413,8 @@ func (s *supabaseAuthService) Login(email, password string) (*models.User, strin
 func (s *supabaseAuthService) LoginWithSession(email, password string) (*models.User, AuthSession, error) {
 	session, err := s.supabase.SignIn(email, password)
 	if err != nil {
-		// Unverified accounts stay blocked even when the legacy bcrypt
-		// password would still match (dual-write): verification is required.
 		if errors.Is(err, supabase.ErrEmailNotConfirmed) || supabase.IsNotConfirmedErr(err) {
 			return nil, AuthSession{}, ErrEmailNotConfirmed
-		}
-		// Transitional fallback: users not yet migrated to Supabase Auth keep
-		// working with the legacy bcrypt password until Fase 2 migrates them.
-		// We still return a legacy-shaped session (no real refresh token).
-		if legacyUser, legacyToken, legacyErr := s.fallback.Login(email, password); legacyErr == nil {
-			return legacyUser, AuthSession{AccessToken: legacyToken, RefreshToken: ""}, nil
 		}
 		msg := err.Error()
 		if strings.Contains(msg, "400") || strings.Contains(msg, "401") || strings.Contains(msg, "Invalid") || strings.Contains(msg, "invalid") {
@@ -438,9 +423,8 @@ func (s *supabaseAuthService) LoginWithSession(email, password string) (*models.
 		return nil, AuthSession{}, err
 	}
 
-	// Canonical profile: prefer lookup by email so pre-migration users
-	// (public.users.id = legacy UUID) keep their FKs working even when
-	// auth.users.id differs. The id cutover happens in Fase 2.
+	// Canonical profile: lookup by email so the business profile (roles,
+	// photoUrl, ...) is always loaded for the Supabase identity.
 	user, err := s.userRepo.FindByEmail(email)
 	if err != nil {
 		// Auth exists in Supabase but profile row is missing: recreate it
@@ -572,8 +556,8 @@ func (s *supabaseAuthService) Logout(accessToken string) error {
 	return nil
 }
 
-// ChangePassword updates both Supabase Auth (source of truth) and the legacy
-// bcrypt column (transitional dual-write) so old sessions keep working.
+// ChangePassword verifies the current password against Supabase Auth and
+// sets the new one there (source of truth). Requires the service role key.
 func (s *supabaseAuthService) ChangePassword(userID, currentPassword, newPassword string) error {
 	if len(newPassword) < minPasswordLength {
 		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
@@ -583,8 +567,7 @@ func (s *supabaseAuthService) ChangePassword(userID, currentPassword, newPasswor
 		return errors.New("user not found")
 	}
 
-	// Resolve the Supabase auth.users.id: normally == public.users.id for new
-	// users, but pre-migration users may differ -> resolve by email via admin.
+	// Resolve the Supabase auth.users.id (normally == public.users.id).
 	authUserID := user.ID
 	if s.cfg.HasAdminKey() {
 		if resolved, resolveErr := s.supabase.AdminGetUserByEmail(user.Email); resolveErr == nil && resolved != "" {
@@ -592,43 +575,28 @@ func (s *supabaseAuthService) ChangePassword(userID, currentPassword, newPasswor
 		}
 	}
 
-	// Verify current password: try Supabase first, then legacy bcrypt.
-	supabaseOK := false
-	if _, signInErr := s.supabase.SignIn(user.Email, currentPassword); signInErr == nil {
-		supabaseOK = true
-	}
-	if !supabaseOK {
-		if legacyErr := s.fallback.ChangePassword(userID, currentPassword, newPassword); legacyErr != nil {
-			// Preserve legacy error semantics for Flutter.
-			return legacyErr
+	// Verify current password against Supabase Auth. GoTrue answers
+	// "email not confirmed" only after the credentials checked out, so an
+	// unverified account with the right password still passes this gate.
+	if _, signInErr := s.supabase.SignIn(user.Email, currentPassword); signInErr != nil {
+		if !errors.Is(signInErr, supabase.ErrEmailNotConfirmed) && !supabase.IsNotConfirmedErr(signInErr) {
+			return errors.New("current password incorrect")
 		}
-		// Legacy check passed; still push the new password to Supabase.
-		if s.cfg.HasAdminKey() {
-			_ = s.supabase.AdminUpdatePassword(authUserID, newPassword)
-		}
-		return nil
 	}
 
-	if s.cfg.HasAdminKey() {
-		if err := s.supabase.AdminUpdatePassword(authUserID, newPassword); err != nil {
-			return err
-		}
+	if !s.cfg.HasAdminKey() {
+		return errors.New("password change requires the service role key")
 	}
-	// Dual-write legacy bcrypt hash (best effort) so fallback login keeps
-	// working during the transition. Never fail the request because of this.
-	if hashed, hashErr := bcrypt.GenerateFromPassword([]byte(newPassword), 10); hashErr == nil {
-		_ = s.userRepo.UpdatePassword(user.ID, string(hashed))
-	}
-	return nil
+	return s.supabase.AdminUpdatePassword(authUserID, newPassword)
 }
 
-// ForgotPassword keeps the Flutter {email}->{message} contract: it preserves
-// the legacy 6-digit code flow AND best-effort triggers Supabase recovery email.
+// ForgotPassword keeps the Flutter {email}->{message} contract: it mints the
+// 6-digit recovery code AND best-effort triggers the Supabase recovery email.
 // Si el operador deshabilitó el correo de recuperación (smtp_enabled=false o
-// recovery_email_enabled=false), no se aplica SMTP: se genera el código legacy
-// pero se omite el Recover de Supabase.
+// recovery_email_enabled=false), no se aplica SMTP: se genera el código pero
+// se omite el Recover de Supabase.
 func (s *supabaseAuthService) ForgotPassword(email string) error {
-	if err := s.fallback.ForgotPassword(email); err != nil {
+	if err := issueRecoveryCode(s.userRepo, email); err != nil {
 		return err
 	}
 	if !s.recoveryEmailEnabled() {
@@ -641,28 +609,29 @@ func (s *supabaseAuthService) ForgotPassword(email string) error {
 	return nil
 }
 
-// ResetPassword validates the legacy code (Flutter contract) and syncs the
-// new password to Supabase Auth when possible.
+// ResetPassword validates the recovery code (Flutter contract) and sets the
+// new password in Supabase Auth. Requires the service role key.
 func (s *supabaseAuthService) ResetPassword(email, code, newPassword string) error {
-	if err := s.fallback.ResetPassword(email, code, newPassword); err != nil {
+	if len(newPassword) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
+	}
+	user, err := consumeRecoveryCode(s.userRepo, email, code)
+	if err != nil {
 		return err
 	}
-	if s.cfg.HasAdminKey() {
-		user, err := s.userRepo.FindByEmail(email)
-		if err == nil && user != nil {
-			authUserID := user.ID
-			if resolved, resolveErr := s.supabase.AdminGetUserByEmail(email); resolveErr == nil && resolved != "" {
-				authUserID = resolved
-			}
-			_ = s.supabase.AdminUpdatePassword(authUserID, newPassword)
-		}
+	if !s.cfg.HasAdminKey() {
+		return errors.New("password reset requires the service role key")
 	}
-	return nil
+	authUserID := user.ID
+	if resolved, resolveErr := s.supabase.AdminGetUserByEmail(email); resolveErr == nil && resolved != "" {
+		authUserID = resolved
+	}
+	return s.supabase.AdminUpdatePassword(authUserID, newPassword)
 }
 
-// ValidateToken resolves a Bearer token (Supabase or legacy) to a user id.
+// ValidateToken resolves a Supabase Bearer token to a user id.
 func (s *supabaseAuthService) ValidateToken(token string) (string, error) {
-	claims, err := utils.ValidateAnyToken(token)
+	claims, err := utils.ValidateToken(token)
 	if err != nil {
 		return "", err
 	}

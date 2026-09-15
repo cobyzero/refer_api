@@ -60,71 +60,11 @@ func (m *mockUserRepo) GetStarBalance(_ string) (int, error) {
 }
 
 // ===========================
-// AuthService Unit Tests
+// Password recovery code tests
 // ===========================
 
-func TestAuthService_Login_UserNotFound(t *testing.T) {
-	repo := &mockUserRepo{findByEmailErr: sql.ErrNoRows}
-	svc := NewAuthService(repo)
-	_, _, err := svc.Login("notexist@example.com", "password")
-	if err == nil {
-		t.Fatal("Expected error for non-existent user, got nil")
-	}
-	if err.Error() != "invalid credentials" {
-		t.Errorf("Expected 'invalid credentials', got: %s", err.Error())
-	}
-}
-
-func TestAuthService_Login_WrongPassword(t *testing.T) {
-	// We need a real bcrypt hash here. Using a known hash of "correctpassword"
-	// Use: bcrypt.GenerateFromPassword([]byte("correctpassword"), 10) offline
-	repo := &mockUserRepo{
-		user: &models.User{
-			ID:       "uuid1",
-			Email:    "test@example.com",
-			Password: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // hash of "correctpassword"
-			Roles:    []models.Role{{Name: "USER"}},
-		},
-	}
-	svc := NewAuthService(repo)
-	_, _, err := svc.Login("test@example.com", "wrongpassword")
-	if err == nil {
-		t.Fatal("Expected error for wrong password, got nil")
-	}
-	if err.Error() != "invalid credentials" {
-		t.Errorf("Expected 'invalid credentials', got: %s", err.Error())
-	}
-}
-
-func TestAuthService_Register_EmailAlreadyExists(t *testing.T) {
-	// When FindByEmail returns no error (user exists), Register should fail
-	repo := &mockUserRepo{user: &models.User{Email: "exists@example.com"}}
-	svc := NewAuthService(repo)
-	_, _, err := svc.Register("John", "exists@example.com", "password123", false)
-	if err == nil {
-		t.Fatal("Expected error when email already exists, got nil")
-	}
-	if err.Error() != "email already exists" {
-		t.Errorf("Expected 'email already exists', got: %s", err.Error())
-	}
-}
-
-func TestAuthService_Register_FindByEmailSystemError(t *testing.T) {
-	// System error during FindByEmail (not ErrNoRows) should propagate
-	repo := &mockUserRepo{findByEmailErr: errors.New("connection error")}
-	svc := NewAuthService(repo)
-	_, _, err := svc.Register("John", "john@example.com", "password123", false)
-	if err == nil {
-		t.Fatal("Expected system error to propagate, got nil")
-	}
-	if err.Error() != "connection error" {
-		t.Errorf("Expected 'connection error', got: %s", err.Error())
-	}
-}
-
-func TestAuthService_ResetPassword_NoCodeRequested(t *testing.T) {
-	svc := NewAuthService(&mockUserRepo{})
-	err := svc.ResetPassword("nobody@example.com", "123456", "newpass")
+func TestRecoveryCode_ConsumeWithoutIssue(t *testing.T) {
+	_, err := consumeRecoveryCode(&mockUserRepo{}, "nobody@example.com", "123456")
 	if err == nil {
 		t.Fatal("Expected error when no code was requested, got nil")
 	}
@@ -134,28 +74,49 @@ func TestAuthService_ResetPassword_NoCodeRequested(t *testing.T) {
 	}
 }
 
-func TestAuthService_ResetPassword_WrongCodeBurnsAfterMaxAttempts(t *testing.T) {
+func TestRecoveryCode_WrongCodeBurnsAfterMaxAttempts(t *testing.T) {
 	repo := &mockUserRepo{user: &models.User{ID: "u1", Email: "a@example.com"}}
-	svc := NewAuthService(repo)
-	if err := svc.ForgotPassword("a@example.com"); err != nil {
-		t.Fatalf("ForgotPassword failed: %v", err)
+	if err := issueRecoveryCode(repo, "a@example.com"); err != nil {
+		t.Fatalf("issueRecoveryCode failed: %v", err)
 	}
 	for i := 0; i < resetCodeMaxAttempts; i++ {
-		if err := svc.ResetPassword("a@example.com", "000000", "newpass1"); !errors.Is(err, ErrRecoveryCodeInvalid) {
+		if _, err := consumeRecoveryCode(repo, "a@example.com", "000000"); !errors.Is(err, ErrRecoveryCodeInvalid) {
 			t.Fatalf("attempt %d: expected ErrRecoveryCodeInvalid, got: %v", i, err)
 		}
 	}
 	// Code is burned: even the right code (unknown here) must fail uniformly.
-	if err := svc.ResetPassword("a@example.com", "000000", "newpass1"); !errors.Is(err, ErrRecoveryCodeInvalid) {
+	if _, err := consumeRecoveryCode(repo, "a@example.com", "000000"); !errors.Is(err, ErrRecoveryCodeInvalid) {
 		t.Errorf("Expected burned code to fail uniformly, got: %v", err)
 	}
 }
 
-func TestAuthService_ForgotPassword_UnknownUserUniformSuccess(t *testing.T) {
+func TestRecoveryCode_IssueUnknownUserUniformSuccess(t *testing.T) {
 	repo := &mockUserRepo{findByEmailErr: sql.ErrNoRows}
-	svc := NewAuthService(repo)
-	if err := svc.ForgotPassword("ghost@example.com"); err != nil {
+	if err := issueRecoveryCode(repo, "ghost@example.com"); err != nil {
 		t.Errorf("Expected uniform success for unknown user, got: %v", err)
+	}
+}
+
+func TestRecoveryCode_ConsumeSuccessSingleUse(t *testing.T) {
+	repo := &mockUserRepo{user: &models.User{ID: "u2", Email: "b@example.com"}}
+	if err := issueRecoveryCode(repo, "b@example.com"); err != nil {
+		t.Fatalf("issueRecoveryCode failed: %v", err)
+	}
+	val, ok := resetCodes.Load("b@example.com")
+	if !ok {
+		t.Fatal("Expected a stored code, found none")
+	}
+	code := val.(resetCodeInfo).code
+	user, err := consumeRecoveryCode(repo, "b@example.com", code)
+	if err != nil {
+		t.Fatalf("Expected code to validate, got: %v", err)
+	}
+	if user.ID != "u2" {
+		t.Errorf("Expected user u2, got: %s", user.ID)
+	}
+	// Single-use: the same code must fail now.
+	if _, err := consumeRecoveryCode(repo, "b@example.com", code); !errors.Is(err, ErrRecoveryCodeInvalid) {
+		t.Errorf("Expected consumed code to fail, got: %v", err)
 	}
 }
 

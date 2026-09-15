@@ -19,25 +19,12 @@ Flutter ──HTTPS──▶ Go :3000 ─┬──▶ Kong :8000 ─┬──▶
 | `supabase-rest` | `postgrest/postgrest:v12.2.0` | interno :3000 (vía Kong `/rest/v1/*`) |
 | `supabase-kong` | `kong:2.8.1` (DB-less, `supabase/kong.yml`) | `${SUPABASE_KONG_HTTP_PORT:-8000}`, `:8443` |
 | `supabase-storage` | `supabase/storage-api:v1.73.0` | interno :5000 (vía Kong `/storage/v1/*`), volumen `supabase_storage_data` |
-| `supabase-meta` | `supabase/postgres-meta:v0.99.0` | interno :8080 (lo usa Studio) |
-| `supabase-studio` (panel) | `supabase/studio:2026.09.04-sha-5a67366` | `${SUPABASE_STUDIO_PORT:-3002}` → 3000 |
-
-## Panel (Studio)
-
-Abre **http://localhost:3002** → verás proyecto `refer`:
-
-- **Table Editor**: las 20 tablas migradas (`users`, `orders`, `products`, …) con sus counts.
-- **Authentication → Users**: los usuarios (`auth.users`), creados con el mismo UUID que `public.users`.
-- **SQL Editor**: para correr queries de verificación.
-
-> El panel es solo administración/dev: Flutter nunca lo usa y Go no lo necesita.
-> En prod, restringe el puerto 3002 por red o proxy reverso con auth.
 
 ## Requisitos
 
 - Docker + Docker Compose
 - Go ≥ 1.25 (solo desarrollo local)
-- Client tools Postgres (`pg_dump`, `pg_restore`, `psql`) — solo para migrar: `brew install libpq`
+- `psql` (opcional, solo para inspeccionar la DB): `brew install libpq`
 
 ## 1. Levantar todo (desde cero)
 
@@ -46,6 +33,11 @@ cp .env.example .env          # y completa los valores (ver tabla abajo)
 docker compose up -d --wait   # PG + Auth + REST + Kong + Go, esperando health
 docker compose ps             # todo debe estar healthy/running
 ```
+
+Go crea el schema automáticamente al arrancar (21 tablas con `IF NOT EXISTS`)
+y el seed inicial. La data empieza desde cero, sin migraciones.
+Supabase Auth es requerido: sin `SUPABASE_URL` + `SUPABASE_ANON_KEY` +
+`SUPABASE_JWT_SECRET` + `SUPABASE_SERVICE_ROLE_KEY` el server no arranca.
 
 Comprobaciones:
 
@@ -68,12 +60,11 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/rest/v1/  # → 2
 | Var | Para qué | Ejemplo local |
 |---|---|---|
 | `PORT` / `HOST_PORT` | puerto Go | `3000` / `3001` |
-| `DB_HOST`…`DB_NAME` | PG local Supabase (todo en docker): `localhost:5433/postgres` | legacy solo vía `LEGACY_DATABASE_URL` (migrador) |
+| `DB_HOST`…`DB_NAME` | PG Supabase (todo en docker): `localhost:5433/postgres` | ver `DATABASE_URL` |
 | `DATABASE_URL` | **DB principal**: Supabase PG (tiene prioridad sobre `DB_*`) | `postgres://postgres:<pw>@localhost:5433/postgres?sslmode=disable` (local) · `...@supabase-db:5432/...` (en compose) |
-| `APP_DATABASE_URL` | override de `DATABASE_URL` **dentro del compose** (red interna `supabase-db`); vacío = default interno. En Dokploy, setear explícito para cutover/legacy | solo compose |
+| `APP_DATABASE_URL` | override de `DATABASE_URL` **dentro del compose** (red interna `supabase-db`); vacío = default interno | solo compose |
 | `APP_SUPABASE_URL` | override de `SUPABASE_URL` dentro del compose (`http://supabase-kong:8000`); `.env` trae `localhost` para `go run` local | solo compose |
-| `LEGACY_DATABASE_URL` | origen del migrador (vacío = usa `DB_*`) | URL de la DB legacy |
-| `JWT_SECRET` | valida sesiones legacy (transición) | no cambiar sin desloguear a todos |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | seed del admin (se aprovisiona en Supabase Auth al arrancar) | `admin@admin.com` / cambiar en prod |
 | `SUPABASE_URL` | Auth para Go: en compose `http://supabase-kong:8000`, local `http://localhost:8000` | según contexto |
 | `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | anon (Go) / admin (solo servidor, jamás Flutter/Git) | keys HS256 firmadas con el JWT secret |
 | `SUPABASE_JWT_SECRET` | firma/validación JWT Supabase (≥32 chars) | rotar en prod + re-firmar keys |
@@ -86,33 +77,12 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/rest/v1/  # → 2
 Rotar en prod: `openssl rand -hex 16` (password), `openssl rand -base64 48` (JWT secret),
 re-firmar ANON/SERVICE_ROLE HS256 (`iss: supabase-demo`, `exp` largo).
 
-## 3. Migración Fase 2 (legacy → Supabase) — orden estricto
+Atajos: `make supabase-up`, `make supabase-psql`.
 
-> Nunca destructiva: legacy jamás se escribe ni se borra. Cada paso es re-ejecutable.
-> Usa `sh scripts/run-with-env.sh <cmd>` (carga `.env` tolerando caracteres especiales).
+> Una vez por entorno, tras el primer arranque (tablas ya creadas):
+> `make supabase-rls` (requiere `DATABASE_URL`) activa el RLS deny-all.
 
-```bash
-sh scripts/run-with-env.sh go run ./cmd/supabase-migrate -step=backup   # pg_dump -Fc → ./backups (solo lectura)
-sh scripts/run-with-env.sh go run ./cmd/supabase-migrate -step=migrate  # dry-run: plan + counts, no escribe
-sh scripts/run-with-env.sh go run ./cmd/supabase-migrate -step=migrate -apply  # schema+datos, auth.users, remap ids
-sh scripts/run-with-env.sh go run ./cmd/supabase-migrate -step=validate # counts + FK huérfanas + auth parity → PASSED
-make supabase-rls   # RLS deny-all, SOLO tras PASSED (requiere DATABASE_URL)
-```
-
-Notas:
-
-- Passwords **no migran** (bcrypt vs GoTrue): se crea password aleatoria por usuario;
-  con `-apply -send-recovery` se les envía email para definir la suya.
-- Los `id` UUID se preservan (`auth.users.id == public.users.id`); si Auth ignora el id,
-  se remapea en transacción con cascada (`orders`, `star_transactions`,
-  `redeemed_rewards`, `cart_items`, `users_roles`).
-- `validate` falla (exit ≠ 0) ante cualquier mismatch → **no hacer cutover**.
-- Cutover prod: setear `DATABASE_URL`=<Supabase PG> en el entorno de `app`, probar la API
-  (Flutter sin cambios), y solo entonces retirar la DB vieja (con backup previo).
-
-Atajos: `make supabase-up`, `make migrate-backup|plan|apply|validate`, `make supabase-psql`.
-
-## 4. Uploads (Supabase Storage)
+## 3. Uploads (Supabase Storage)
 
 `POST /api/products/upload` y `POST /api/users/upload` reciben multipart `file`
 y responden `201 {imageUrl}` / `{photoUrl}` como siempre — Go guarda en Storage
@@ -122,10 +92,9 @@ y responden `201 {imageUrl}` / `{photoUrl}` como siempre — Go guarda en Storag
 
 ```bash
 make supabase-storage-init  # buckets + policy (una vez por entorno)
-make migrate-uploads        # sube ./uploads/* y reescribe URLs en DB (verificado: 0 refs viejas)
 ```
 
-## 5. Auditoría (módulo admin de refer_web)
+## 4. Auditoría (módulo admin de refer_web)
 
 Toda mutación HTTP (`POST/PUT/PATCH/DELETE` en `/api/*`) queda registrada en
 `audit_logs`: actor (JWT), acción, entidad, status, IP y detalle. Sockets del
@@ -140,7 +109,7 @@ El resto usa `METHOD /ruta` genérico. Nunca se loguean passwords ni secrets.
 Solo ADMIN: `GET /api/audit-logs/?userId&action&q&entityType&entityId&from&to&page&limit`
 → `{data, total, page, limit}`; `GET /api/audit-logs/actions` → filtros del dropdown.
 
-## 6. Endpoints (contrato Flutter, intacto)
+## 5. Endpoints (contrato Flutter, intacto)
 
 `POST /api/auth/register|login|verify-email|resend-verification|forgot-password|reset-password|refresh|logout|change-password`,
 `GET /api/auth/validate|me`, más `/users`, `/products`, `/collections`, `/stars` (+`GET /perks`),
@@ -159,10 +128,10 @@ La plantilla del correo vive en `supabase/templates/confirmation.html` (usa `{{ 
 Go la sirve el propio Go en `/templates` y GoTrue la descarga por HTTP — ver
 `GOTRUE_MAILER_TEMPLATES_CONFIRMATION` en el compose).
 
-## 5. Seguridad / RLS
+## 6. Seguridad / RLS
 
 - `SERVICE_ROLE_KEY` solo en servidor (Go). Jamás en Flutter, Git, `.env` versionado, respuestas ni logs.
-- `supabase/rls.sql`: RLS habilitado en las 20 tablas, **sin policies permisivas** → PostgREST
-  directo denegado por defecto. Toda autorización vive en Go (JWT dual + `RequireRole("ADMIN")`).
-- JWT dual: Supabase primero (`SUPABASE_JWT_SECRET`), fallback legacy (`JWT_SECRET`) para
-  sesiones viejas; roles enriquecidos desde `public.users` (los JWT Supabase no traen roles app).
+- `supabase/rls.sql`: RLS habilitado en las tablas, **sin policies permisivas** → PostgREST
+  directo denegado por defecto. Toda autorización vive en Go (JWT + `RequireRole("ADMIN")`).
+- JWT Supabase (`SUPABASE_JWT_SECRET`); roles enriquecidos desde `public.users`
+  (los JWT Supabase no traen roles app).

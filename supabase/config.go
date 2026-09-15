@@ -1,6 +1,7 @@
 package supabase
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -25,9 +26,31 @@ func LoadConfig() Config {
 }
 
 // Enabled reports whether Supabase Auth is configured.
-// When false, the backend keeps using the legacy auth flow (zero-risk fallback).
+// Supabase Auth is the only supported auth flow.
 func (c Config) Enabled() bool {
 	return c.URL != "" && c.AnonKey != ""
+}
+
+// Validate ensures every Supabase Auth setting the backend needs is present.
+// The server refuses to boot without them: there is no legacy fallback.
+func (c Config) Validate() error {
+	var missing []string
+	if c.URL == "" {
+		missing = append(missing, "SUPABASE_URL")
+	}
+	if c.AnonKey == "" {
+		missing = append(missing, "SUPABASE_ANON_KEY")
+	}
+	if c.JWTSecret == "" {
+		missing = append(missing, "SUPABASE_JWT_SECRET")
+	}
+	if c.ServiceRoleKey == "" {
+		missing = append(missing, "SUPABASE_SERVICE_ROLE_KEY")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // HasAdminKey reports whether admin operations (create/delete user, update password)
