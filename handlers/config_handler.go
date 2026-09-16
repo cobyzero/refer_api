@@ -42,6 +42,11 @@ func (h *ConfigHandler) GetConfig(c *fiber.Ctx) error {
 			"smtpEnabled":          services.SmtpEnabled(settings),
 			"signupEmailEnabled":   services.SignupEmailEnabled(settings),
 			"recoveryEmailEnabled": services.RecoveryEmailEnabled(settings),
+			// Explicit for refer_app: true = new accounts must pass email
+			// OTP (the app shows the OTP view). False = the API
+			// auto-confirms on register/login and returns a session, so
+			// the app must skip OTP and go straight in.
+			"emailVerificationRequired": services.SignupEmailEnabled(settings),
 			// Testing only: the mobile app may skip the Stripe sheet and
 			// confirm directly ONLY when the operator enabled it here.
 			// Default false; never true in prod.

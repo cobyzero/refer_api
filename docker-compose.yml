@@ -1,27 +1,4 @@
 services:
-  # --- DB incluida en compose (comentada para usar DB externa en 5435) ---
-  # Para volver a usarla, descomenta este bloque y descomenta depends_on y volumen postgres_data
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: refer_postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: ${DB_NAME:-refer}
-  #     POSTGRES_USER: ${DB_USERNAME:-postgres}
-  #     POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-  #   ports:
-  #     - "${DB_EXTERNAL_PORT:-5432}:5432"
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-refer}"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
-  #     start_period: 20s
-  #   networks:
-  #     - refer_network
-
   # ============================================================
   # SUPABASE SELF-HOSTED (lean: PostgreSQL + Auth + PostgREST + Kong)
   # Arquitectura: Flutter -> Go -> Kong (:8000) -> Auth/PostgREST -> PG.
@@ -177,9 +154,14 @@ services:
       dockerfile: Dockerfile
     container_name: refer_api
     restart: unless-stopped
-    # depends_on:
-    #   postgres:
-    #     condition: service_healthy
+    # Orden de arranque: sin esto Go boottea antes que PG/Kong y el primer
+    # intento (migración + provisión del admin en Auth) falla con
+    # connection refused. Con healthy gates, el boot es limpio.
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-kong:
+        condition: service_healthy
     ports:
       - "${HOST_PORT:-3001}:${PORT:-3000}"
     env_file:

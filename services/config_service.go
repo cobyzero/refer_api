@@ -2,8 +2,11 @@ package services
 
 import (
 	"errors"
+	"log"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"refer_api/repository"
 )
@@ -128,6 +131,11 @@ func (s *configService) GetSettings() (map[string]string, error) {
 	settings[SettingSignupEmailEnabled] = sanitizeBool(settings[SettingSignupEmailEnabled], DefaultSignupEmailEnabled)
 	settings[SettingRecoveryEmailEnabled] = sanitizeBool(settings[SettingRecoveryEmailEnabled], DefaultRecoveryEmailEnabled)
 	settings[SettingDirectConfirmEnabled] = sanitizeBool(settings[SettingDirectConfirmEnabled], DefaultDirectConfirmEnabled)
+	// .env overrides (emails only): SMTP_ENABLED / SIGNUP_EMAIL_ENABLED /
+	// RECOVERY_EMAIL_ENABLED. When set, they lock the toggle regardless of
+	// what the refer_web module stored in DB — useful for dev/local or as a
+	// kill-switch without touching the DB. Unset = DB decides.
+	applyEmailEnvOverrides(settings)
 	// Stored versions always win over env seeds; sanitize in case they were
 	// written outside the validated path, keeping min <= version coherent.
 	settings[SettingAppVersion] = sanitizeVersion(settings[SettingAppVersion], envVersion)
@@ -253,6 +261,38 @@ func (s *configService) UpdateDirectConfirm(enabled bool) (map[string]string, er
 // confirmation (testing only, default false). Fail-closed on any doubt.
 func DirectConfirmEnabled(settings map[string]string) bool {
 	return parseBoolSetting(settings, SettingDirectConfirmEnabled, DefaultDirectConfirmEnabled)
+}
+
+// warnedEnvOverrides tracks which .env locks were already logged (GetSettings
+// runs every ~30s via cache expiry; the warning must appear once).
+var warnedEnvOverrides sync.Map // map[string]bool
+
+// applyEmailEnvOverrides lets `.env` lock the email toggles over the DB
+// values from the refer_web module. Effective = env when set, else DB.
+func applyEmailEnvOverrides(settings map[string]string) {
+	overrides := []struct {
+		envKey     string
+		settingKey string
+	}{
+		{"SMTP_ENABLED", SettingSmtpEnabled},
+		{"SIGNUP_EMAIL_ENABLED", SettingSignupEmailEnabled},
+		{"RECOVERY_EMAIL_ENABLED", SettingRecoveryEmailEnabled},
+	}
+	for _, o := range overrides {
+		raw, ok := os.LookupEnv(o.envKey)
+		if !ok || strings.TrimSpace(raw) == "" {
+			continue
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			log.Printf("Warning: ignoring invalid boolean %s=%q", o.envKey, raw)
+			continue
+		}
+		settings[o.settingKey] = strconv.FormatBool(v)
+		if _, warned := warnedEnvOverrides.LoadOrStore(o.envKey, true); !warned {
+			log.Printf("Config: %s=%t from .env locks %s (refer_web toggle ignored while set)", o.envKey, v, o.settingKey)
+		}
+	}
 }
 
 // sanitizeBool normalizes a stored bool string, falling back to def.

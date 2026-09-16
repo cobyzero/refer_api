@@ -414,6 +414,18 @@ func (s *supabaseAuthService) LoginWithSession(email, password string) (*models.
 	session, err := s.supabase.SignIn(email, password)
 	if err != nil {
 		if errors.Is(err, supabase.ErrEmailNotConfirmed) || supabase.IsNotConfirmedErr(err) {
+			// Cuentas creadas cuando la verificación estaba activa pero el
+			// operador la desactivó después (refer_web o .env): auto-confirmar
+			// en vez de dejarlas atoradas en un OTP que ya no se envía
+			// (resend devuelve EMAIL_DISABLED). Sin admin key o con la
+			// verificación activa, se mantiene el 403 de siempre.
+			if !s.signupEmailEnabled() && s.cfg.HasAdminKey() {
+				if authID, rErr := s.supabase.AdminGetUserByEmail(email); rErr == nil && authID != "" {
+					if user, sess, cErr := s.confirmAndSignIn("", email, password, false, authID); cErr == nil {
+						return user, sess, nil
+					}
+				}
+			}
 			return nil, AuthSession{}, ErrEmailNotConfirmed
 		}
 		msg := err.Error()
