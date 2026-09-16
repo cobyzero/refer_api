@@ -13,6 +13,13 @@ services:
     container_name: refer_supabase_db
     restart: unless-stopped
     environment:
+      # Bootstrap explícito: el superusuario y la DB inicial se crean SOLO en
+      # el primer arranque (volumen vacío) con estos nombres. Sin esto, un
+      # POSTGRES_USER heredado del entorno habría creado el cluster con otro
+      # superusuario y todo (GoTrue, app) falla con 'role "postgres" does not
+      # exist'. En volúmenes ya inicializados no cambia nada.
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
       POSTGRES_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
     ports:
       - "${SUPABASE_DB_EXTERNAL_PORT:-5433}:5432"
