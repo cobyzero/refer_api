@@ -27,8 +27,8 @@ type userService struct {
 	auth     AuthProvisioner
 }
 
-// AuthProvisioner mirrors operator-managed accounts in Supabase Auth so they
-// can sign in immediately. Implemented by *supabase.Client.
+// AuthProvisioner mirrors operator-managed accounts in Kratos so they
+// can sign in immediately. Implemented by *auth.Client.
 type AuthProvisioner interface {
 	EnsureUser(email, password, name string) (string, error)
 	AdminGetUserByEmail(email string) (string, error)
@@ -37,7 +37,7 @@ type AuthProvisioner interface {
 }
 
 // NewUserService constructs a new UserService instance. The optional
-// AuthProvisioner (Supabase client) is required for Create/Update with a
+// AuthProvisioner (Kratos client) is required for Create/Update with a
 // password and for Delete cleanup; without it those operations fail loudly.
 func NewUserService(userRepo repository.UserRepository, auth ...AuthProvisioner) UserService {
 	s := &userService{userRepo: userRepo}
@@ -120,12 +120,12 @@ func (s *userService) Create(userData map[string]interface{}, roleNames []string
 	}
 
 	if s.auth == nil {
-		return nil, errors.New("supabase auth provisioner is required to create users")
+		return nil, errors.New("auth provisioner is required to create users")
 	}
 	if password == "" {
 		password = "password123"
 	}
-	// Supabase Auth owns the credentials: provision (confirmed) first and
+	// Kratos owns the credentials: provision (verified) first and
 	// mirror its id, so the account can sign in immediately. Passwords are
 	// never stored locally.
 	authID, err := s.auth.EnsureUser(email, password, name)
@@ -195,9 +195,9 @@ func (s *userService) Update(id string, userData map[string]interface{}, roleNam
 	}
 	if password, ok := userData["password"].(string); ok && password != "" {
 		if s.auth == nil {
-			return nil, errors.New("supabase auth provisioner is required to set passwords")
+			return nil, errors.New("auth provisioner is required to set passwords")
 		}
-		// Resolve the Supabase account by the previous email; if it has no
+		// Resolve the Kratos account by the previous email; if it has no
 		// auth row yet, provision one (same pattern as login auto-create).
 		// The public.users.id never changes, so FKs are untouched.
 		authID, resolveErr := s.auth.AdminGetUserByEmail(oldEmail)
@@ -248,7 +248,7 @@ func (s *userService) Delete(id string) error {
 	if err != nil {
 		return err
 	}
-	// Best-effort Supabase cleanup so the deleted account cannot sign in.
+	// Best-effort Kratos cleanup so the deleted account cannot sign in.
 	// The local row is always removed, even if Auth cleanup fails.
 	if s.auth != nil && user != nil {
 		if authID, resolveErr := s.auth.AdminGetUserByEmail(user.Email); resolveErr == nil && authID != "" {

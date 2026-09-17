@@ -27,7 +27,7 @@ func NewProductHandler(productService services.ProductService) *ProductHandler {
 	return &ProductHandler{productService: productService}
 }
 
-// WithStorage injects the upload backend (Supabase Storage w/ disk fallback).
+// WithStorage injects the upload backend (R2 w/ disk fallback).
 func (h *ProductHandler) WithStorage(s services.StorageService) *ProductHandler {
 	h.storageService = s
 	return h
@@ -326,7 +326,7 @@ func (h *ProductHandler) Update(c *fiber.Ctx) error {
 	return c.JSON(models.MapProduct(product))
 }
 
-// UploadPhoto stores product photos via StorageService (Supabase Storage,
+// UploadPhoto stores product photos via StorageService (R2,
 // disk fallback). Contract unchanged: multipart `file` -> 201 {imageUrl}.
 func (h *ProductHandler) UploadPhoto(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")

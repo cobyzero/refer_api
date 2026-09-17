@@ -12,8 +12,8 @@ import (
 )
 
 // EnrichRolesFromDB loads app roles (ADMIN/USER) from public.users when the
-// JWT itself carries none. Supabase Auth JWTs never contain our app roles,
-// so without this step RequireRole("ADMIN") would reject Supabase sessions.
+// JWT itself carries none. API JWTs carry no app roles, so without this step
+// RequireRole("ADMIN") would reject valid sessions.
 // Exported so the Socket.IO gateway reuses the exact same logic as HTTP.
 //
 // Fase 0: 5-min in-memory cache + per-user singleflight so concurrent
@@ -75,8 +75,7 @@ func JWTProtected() fiber.Handler {
 		}
 
 		tokenString := parts[1]
-		// Supabase Auth is the only issuer: validate the JWT against
-		// SUPABASE_JWT_SECRET (sub = auth.users.id).
+		// API session JWT minted by Go (AUTH_JWT_SECRET, sub = identity id).
 		claims, err := utils.ValidateToken(tokenString)
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{

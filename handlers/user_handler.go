@@ -24,7 +24,7 @@ func NewUserHandler(userService services.UserService) *UserHandler {
 	return &UserHandler{userService: userService}
 }
 
-// WithStorage injects the upload backend (Supabase Storage w/ disk fallback).
+// WithStorage injects the upload backend (R2 w/ disk fallback).
 func (h *UserHandler) WithStorage(s services.StorageService) *UserHandler {
 	h.storageService = s
 	return h
@@ -93,7 +93,7 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 	})
 }
 
-// UploadPhoto stores profile photos via StorageService (Supabase Storage,
+// UploadPhoto stores profile photos via StorageService (R2,
 // disk fallback). Contract unchanged: multipart `file` -> 201 {photoUrl}.
 func (h *UserHandler) UploadPhoto(c *fiber.Ctx) error {
 	userID := c.Locals("userId").(string)

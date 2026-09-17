@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Fase 0: in-memory TTL cache for app roles so Supabase JWTs (which carry no
+// Fase 0: in-memory TTL cache for app roles so API JWTs (which carry no
 // roles) don't hit public.users on EVERY authenticated request.
 // Single instance: sync.Map is enough. Redis (Fase 1) replaces this when we
 // scale to >1 replica.

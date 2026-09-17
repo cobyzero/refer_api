@@ -3,6 +3,9 @@ package main
 import (
 	"log"
 	"os"
+	"time"
+
+	"refer_api/auth"
 	"refer_api/database"
 	"refer_api/gateway"
 	"refer_api/handlers"
@@ -11,7 +14,6 @@ import (
 	"refer_api/repository"
 	"refer_api/routes"
 	"refer_api/services"
-	"refer_api/supabase"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
@@ -40,29 +42,22 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	// DB externa supabase/postgres: verifica roles/schemas auth/storage o corta
-	// con mensaje explícito (evita PGRST000/3F000 crípticos después).
-	if err := database.CheckSupabaseDB(database.DB); err != nil {
-		log.Fatalf("Supabase DB check failed: %v", err)
-	}
-
-	// Buckets storage idempotentes (antes manual con make supabase-storage-init).
-	if err := database.EnsureStorage(database.DB); err != nil {
-		log.Fatalf("Failed to ensure storage buckets: %v", err)
-	}
-
 	// Initialize SocketGateway
 	socketGateway := gateway.InitSocketGateway()
 
-	// Supabase Auth is the only auth flow: refuse to boot without it.
-	supaCfg := supabase.LoadConfig()
-	if err := supaCfg.Validate(); err != nil {
-		log.Fatalf("Supabase Auth is required: %v", err)
+	// Ory Kratos is the only auth flow: refuse to boot without it.
+	authCfg := auth.LoadConfig()
+	if err := authCfg.Validate(); err != nil {
+		log.Fatalf("Auth is required: %v", err)
 	}
-	supaClient := supabase.NewClient(supaCfg)
-	log.Println("Supabase Auth enabled")
+	kratosClient := auth.NewClient(authCfg)
+	log.Println("Waiting for Kratos...")
+	if err := kratosClient.WaitReady(90 * time.Second); err != nil {
+		log.Fatalf("Kratos is required: %v", err)
+	}
+	log.Println("Kratos ready")
 
-	// Provision the seed admin in Supabase Auth, then mirror it in
+	// Provision the seed admin in Kratos, then mirror it in
 	// public.users with the same id (idempotent, created once).
 	adminEmail := os.Getenv("ADMIN_EMAIL")
 	if adminEmail == "" {
@@ -72,9 +67,9 @@ func main() {
 	if adminPassword == "" {
 		adminPassword = "admin123@"
 	}
-	authAdminID, err := supaClient.EnsureUser(adminEmail, adminPassword, "Admin")
+	authAdminID, err := kratosClient.EnsureUser(adminEmail, adminPassword, "Admin")
 	if err != nil {
-		log.Fatalf("Failed to provision Supabase admin user: %v", err)
+		log.Fatalf("Failed to provision Kratos admin user: %v", err)
 	}
 	if err := database.EnsureAdmin(database.DB, authAdminID); err != nil {
 		log.Fatalf("Failed to ensure admin user: %v", err)
@@ -86,23 +81,23 @@ func main() {
 	// Se inyecta configRepo para que registro/recuperación respeten los toggles
 	// smtp_enabled/signup_email_enabled/recovery_email_enabled del módulo de
 	// configuraciones (refer_web): si se deshabilitan, no se aplica SMTP.
-	authService := services.NewSupabaseAuthService(userRepo, supaClient, supaCfg, configRepo)
+	authService := services.NewKratosAuthService(userRepo, kratosClient, authCfg, configRepo)
 	authHandler := handlers.NewAuthHandler(authService)
 
-	userService := services.NewUserService(userRepo, supaClient)
+	userService := services.NewUserService(userRepo, kratosClient)
 	userHandler := handlers.NewUserHandler(userService)
 
 	productRepo := repository.NewProductRepository(database.DB)
 	productService := services.NewProductService(productRepo)
 	productHandler := handlers.NewProductHandler(productService)
 
-	// Uploads backend: Supabase Storage w/ transparent disk fallback.
+	// Uploads backend: Cloudflare R2 w/ transparent disk fallback.
 	// Same Flutter contract either way ({imageUrl}/{photoUrl}).
 	storageService := services.NewStorageService()
 	if storageService.Enabled() {
-		log.Println("Supabase Storage adapter enabled")
+		log.Println("R2 storage adapter enabled")
 	} else {
-		log.Println("Supabase Storage not configured; uploads use local disk")
+		log.Println("R2 storage not configured; uploads use local disk")
 	}
 	userHandler.WithStorage(storageService)
 	productHandler.WithStorage(storageService)
@@ -164,10 +159,6 @@ func main() {
 
 	// Serve uploaded files statically
 	app.Static("/uploads", "./uploads")
-
-	// Email OTP template for Supabase Auth (GoTrue fetches it over HTTP).
-	// No secrets here — just the {{ .Token }} markup.
-	app.Static("/templates", "./supabase/templates")
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})

@@ -2,29 +2,32 @@ package services
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// Buckets used by Refer App (see supabase/storage.sql).
+// Buckets used by Refer App (R2 bucket names, created in the Cloudflare
+// dashboard with public access enabled).
 const (
 	BucketUploads  = "uploads"  // legacy files migrated as-is
 	BucketProducts = "products" // POST /api/products/upload
 	BucketAvatars  = "avatars"  // POST /api/users/upload
 )
 
-// StorageService stores uploads in Supabase Storage with transparent fallback
+// StorageService stores uploads in Cloudflare R2 with transparent fallback
 // to local disk (./uploads). Flutter contract is unchanged either way:
 // same endpoints, same {imageUrl}/{photoUrl} JSON shape.
 type StorageService interface {
-	// Enabled reports whether Supabase Storage is configured.
+	// Enabled reports whether R2 is configured.
 	Enabled() bool
 	// Save stores data under bucket/filename and returns its public URL.
 	// baseURL is used only for the disk fallback (same format as before).
@@ -32,39 +35,57 @@ type StorageService interface {
 }
 
 type storageService struct {
-	baseURL    string // internal, e.g. http://supabase-kong:8000 (upload path)
-	publicURL  string // public, e.g. http://localhost:8000 (URL returned to Flutter)
-	serviceKey string
-	anonKey    string
-	httpClient *http.Client
+	client    *s3.Client
+	publicURL map[string]string // bucket -> public base URL (no trailing slash)
 }
 
-// NewStorageService builds the service from SUPABASE_* env (server-side only).
+// r2PublicURL returns the configured public base URL for a bucket ("" if none).
+func r2PublicURL(bucket string) string {
+	switch bucket {
+	case BucketUploads:
+		return strings.TrimRight(os.Getenv("R2_PUBLIC_UPLOADS_URL"), "/")
+	case BucketProducts:
+		return strings.TrimRight(os.Getenv("R2_PUBLIC_PRODUCTS_URL"), "/")
+	case BucketAvatars:
+		return strings.TrimRight(os.Getenv("R2_PUBLIC_AVATARS_URL"), "/")
+	default:
+		return ""
+	}
+}
+
+// NewStorageService builds the service from R2_* env (server-side only).
+// Required: R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
+// Buckets resolve their public URL from R2_PUBLIC_<BUCKET>_URL.
 func NewStorageService() StorageService {
+	endpoint := strings.TrimRight(os.Getenv("R2_ENDPOINT"), "/")
+	keyID := os.Getenv("R2_ACCESS_KEY_ID")
+	secret := os.Getenv("R2_SECRET_ACCESS_KEY")
+	if endpoint == "" || keyID == "" || secret == "" {
+		return &storageService{}
+	}
+	client := s3.New(s3.Options{
+		Region:       "auto",
+		BaseEndpoint: &endpoint,
+		Credentials:  credentials.NewStaticCredentialsProvider(keyID, secret, ""),
+		UsePathStyle: true,
+	})
 	return &storageService{
-		baseURL:    strings.TrimRight(os.Getenv("SUPABASE_URL"), "/"),
-		publicURL:  strings.TrimRight(os.Getenv("SUPABASE_PUBLIC_URL"), "/"),
-		serviceKey: os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
-		anonKey:    os.Getenv("SUPABASE_ANON_KEY"),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		client: client,
+		publicURL: map[string]string{
+			BucketUploads:  r2PublicURL(BucketUploads),
+			BucketProducts: r2PublicURL(BucketProducts),
+			BucketAvatars:  r2PublicURL(BucketAvatars),
+		},
 	}
 }
 
 func (s *storageService) Enabled() bool {
-	return s.baseURL != "" && s.serviceKey != ""
+	return s.client != nil
 }
 
-func (s *storageService) publicURLFor(bucket, filename string) string {
-	base := s.publicURL
-	if base == "" {
-		base = s.baseURL
-	}
-	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", base, bucket, filename)
-}
-
-// Save tries Supabase Storage first; on any error it falls back to ./uploads
-// disk (same naming + URL format as the legacy handlers) so uploads never
-// break during transition. Failures are logged server-side, never leaked.
+// Save tries R2 first; on any error it falls back to ./uploads disk (same
+// naming + URL format as the legacy handlers) so uploads never break.
+// Failures are logged server-side, never leaked.
 func (s *storageService) Save(bucket, filename string, data []byte, contentType, baseURL string) (string, error) {
 	if s.Enabled() {
 		if url, err := s.upload(bucket, filename, data, contentType); err == nil {
@@ -77,39 +98,30 @@ func (s *storageService) Save(bucket, filename string, data []byte, contentType,
 }
 
 func (s *storageService) upload(bucket, filename string, data []byte, contentType string) (string, error) {
+	base := s.publicURL[bucket]
+	if base == "" {
+		// Re-read env so Dokploy changes apply without rebuild.
+		base = r2PublicURL(bucket)
+		if base == "" {
+			return "", fmt.Errorf("no public URL configured for bucket %q (R2_PUBLIC_<BUCKET>_URL)", bucket)
+		}
+	}
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	endpoint := fmt.Sprintf("%s/storage/v1/object/%s/%s", s.baseURL, bucket, filename)
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
+	key := filepath.Base(filename)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String(contentType),
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("r2 upload (bucket %s): %w", bucket, err)
 	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("apikey", s.serviceKey)
-	req.Header.Set("Authorization", "Bearer "+s.serviceKey)
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var payload struct {
-			Message string `json:"message"`
-			Error   string `json:"error"`
-		}
-		_ = json.Unmarshal(body, &payload)
-		msg := payload.Message
-		if msg == "" {
-			msg = payload.Error
-		}
-		if msg == "" {
-			msg = string(body)
-		}
-		return "", fmt.Errorf("storage upload (status %d): %s", resp.StatusCode, msg)
-	}
-	return s.publicURLFor(bucket, filename), nil
+	return fmt.Sprintf("%s/%s", base, key), nil
 }
 
 // SaveToDisk preserves the exact legacy disk behavior for callers without a

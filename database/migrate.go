@@ -35,6 +35,7 @@ func Migrate(db *bun.DB) error {
 		(*models.AppSetting)(nil),
 		(*models.Collection)(nil),
 		(*models.AuditLog)(nil),
+		(*models.RefreshToken)(nil),
 	}
 
 	for _, m := range tables {

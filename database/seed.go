@@ -11,8 +11,8 @@ import (
 )
 
 // EnsureAdmin creates the default admin user once (idempotent).
-// The admin signs in via Supabase Auth: authUserID must be the auth.users.id
-// provisioned beforehand (e.g. via Supabase EnsureUser), so public.users
+// The admin signs in via Kratos: authUserID must be the Kratos identity id
+// provisioned beforehand (e.g. via Kratos EnsureUser), so public.users
 // mirrors it and FKs stay consistent. An empty authUserID keeps a random UUID
 // (local-only, cannot sign in until provisioned).
 // Default credentials: admin@admin.com / admin123@ (override via ADMIN_EMAIL /
@@ -55,7 +55,7 @@ func EnsureAdmin(db *bun.DB, authUserID string) error {
 		return nil
 	}
 
-	// Passwords live in Supabase Auth only: no local hash is stored.
+	// Passwords live in Kratos only: no local hash is stored.
 	adminID := authUserID
 	if adminID == "" {
 		adminID = uuid.New().String()

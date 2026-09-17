@@ -17,8 +17,8 @@ import (
 )
 
 // Recovery codes preserve the Flutter forgot-password/reset-password
-// {email, code} contract on top of Supabase Auth: the 6-digit code gates the
-// reset, and the new password is then set in Supabase Auth (source of truth).
+// {email, code} contract on top of Kratos: the 6-digit code gates the
+// reset, and the new password is then set in Kratos (source of truth).
 //
 // Hardening: 6-digit codes are brute-forceable, so they get attempt limits,
 // single-use semantics, uniform error messages (no oracle for "unknown email"

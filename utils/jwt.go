@@ -3,6 +3,8 @@ package utils
 import (
 	"errors"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -21,19 +23,54 @@ type ValidatedClaims struct {
 	Roles  []string
 }
 
-// ValidateSupabaseToken validates a Supabase Auth JWT (HS256, SUPABASE_JWT_SECRET).
-// Supabase self-hosted signs with the JWT secret; sub is auth.users.id (UUID).
-func ValidateSupabaseToken(tokenString string) (*JWTClaims, error) {
-	jwtSecret := os.Getenv("SUPABASE_JWT_SECRET")
-	if jwtSecret == "" {
-		return nil, errors.New("SUPABASE_JWT_SECRET is not configured")
+func jwtSecret() (string, error) {
+	if s := os.Getenv("AUTH_JWT_SECRET"); s != "" {
+		return s, nil
+	}
+	return "", errors.New("AUTH_JWT_SECRET is not configured")
+}
+
+func jwtExpSec() int {
+	if v := os.Getenv("AUTH_JWT_EXP_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 3600
+}
+
+// MintToken signs a short-lived API session JWT (HS256).
+// sub is the identity id (Kratos identity == public.users.id, UUID).
+// Passwords/credentials are never inside the token.
+func MintToken(userID, email string) (string, error) {
+	secret, err := jwtSecret()
+	if err != nil {
+		return "", err
+	}
+	now := time.Now()
+	claims := JWTClaims{
+		Sub:   userID,
+		Email: email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(jwtExpSec()) * time.Second)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+}
+
+// ValidateAPIToken validates an API session JWT minted by MintToken.
+func ValidateAPIToken(tokenString string) (*JWTClaims, error) {
+	secret, err := jwtSecret()
+	if err != nil {
+		return nil, err
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return []byte(jwtSecret), nil
+		return []byte(secret), nil
 	})
 	if err != nil {
 		return nil, err
@@ -44,10 +81,20 @@ func ValidateSupabaseToken(tokenString string) (*JWTClaims, error) {
 	return nil, errors.New("invalid token")
 }
 
-// ValidateToken validates the request Bearer token.
-// Supabase Auth is the only supported issuer.
+// ParseUnverifiedUserID extracts sub without verifying (logout revocation:
+// the token may already be expired, we still want the owner).
+func ParseUnverifiedUserID(tokenString string) string {
+	parser := jwt.NewParser()
+	claims := &JWTClaims{}
+	if _, _, err := parser.ParseUnverified(tokenString, claims); err != nil {
+		return ""
+	}
+	return claims.Sub
+}
+
+// ValidateToken validates the request Bearer token (API session JWT).
 func ValidateToken(tokenString string) (*ValidatedClaims, error) {
-	claims, err := ValidateSupabaseToken(tokenString)
+	claims, err := ValidateAPIToken(tokenString)
 	if err != nil {
 		return nil, err
 	}

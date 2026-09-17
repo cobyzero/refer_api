@@ -4,10 +4,10 @@ import (
 	"errors"
 	"strings"
 
+	"refer_api/auth"
 	"refer_api/middleware"
 	"refer_api/models"
 	"refer_api/services"
-	"refer_api/supabase"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -52,7 +52,7 @@ type ChangePasswordRequest struct {
 	NewPassword     string `json:"newPassword"`
 }
 
-// AuthHandler coordinates HTTP logic with the AuthService (Supabase Auth).
+// AuthHandler coordinates HTTP logic with the AuthService (Ory Kratos).
 type AuthHandler struct {
 	authService services.SessionAuthService
 }
@@ -86,7 +86,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Name, email, and password are required"})
 	}
 
-	// Supabase returns a real session pair {accessToken, refreshToken}.
+	// Kratos returns a real session pair {accessToken, refreshToken}.
 	user, session, err := h.authService.RegisterWithSession(req.Name, req.Email, req.Password, req.KeepUpdated)
 	if err != nil {
 		// AUTOCONFIRM=false: account created, email OTP pending.
@@ -111,7 +111,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		// Mailer outage (SMTP sin configurar, credenciales mal, caída del
 		// proveedor): 503 para que Flutter muestre "reintenta más tarde"
 		// en vez de un 500 genérico. El detalle queda en el log del server.
-		if errors.Is(err, supabase.ErrEmailServiceUnavailable) || supabase.IsMailerErr(err) {
+		if errors.Is(err, auth.ErrEmailServiceUnavailable) || auth.IsMailerErr(err) {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 				"message": "No pudimos enviar el correo de verificación. Inténtalo de nuevo en unos minutos.",
 				"code":    "EMAIL_SERVICE_UNAVAILABLE",
@@ -250,9 +250,8 @@ func (h *AuthHandler) VerifyEmail(c *fiber.Ctx) error {
 	})
 }
 
-// ResendVerification re-sends the signup OTP email (GoTrue rate-limits it).
-// Contract: {email} -> 200 {message}. Always 200 for unknown rate-limit
-// errors would leak state; Supabase errors surface as 400 with its message.
+// ResendVerification re-sends the signup OTP email.
+// Contract: {email} -> 200 {message}.
 func (h *AuthHandler) ResendVerification(c *fiber.Ctx) error {
 	var req ResendVerificationRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -273,7 +272,7 @@ func (h *AuthHandler) ResendVerification(c *fiber.Ctx) error {
 		if strings.Contains(err.Error(), "not found") {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": err.Error()})
 		}
-		if errors.Is(err, supabase.ErrEmailServiceUnavailable) || supabase.IsMailerErr(err) {
+		if errors.Is(err, auth.ErrEmailServiceUnavailable) || auth.IsMailerErr(err) {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 				"message": "No pudimos reenviar el correo de verificación. Inténtalo de nuevo en unos minutos.",
 				"code":    "EMAIL_SERVICE_UNAVAILABLE",
@@ -288,7 +287,7 @@ func (h *AuthHandler) ResendVerification(c *fiber.Ctx) error {
 	})
 }
 
-// Refresh exchanges a Supabase refresh token for a new pair.
+// Refresh exchanges an API refresh token for a new pair.
 // Contract: {refreshToken} -> {accessToken, refreshToken}.
 func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	var req RefreshTokenRequest

@@ -1,4 +1,4 @@
-.PHONY: dev dev-docker build run watch help install-air supabase-up supabase-psql supabase-rls supabase-storage-init
+.PHONY: dev dev-docker build run watch help install-air up psql
 
 AIR := $(HOME)/go/bin/air
 
@@ -9,11 +9,9 @@ help:
 	@echo "  make install-air  - instala air si no está"
 	@echo "  make build        - compila binario ./tmp/main"
 	@echo "  make run          - compila y ejecuta una vez"
-	@echo "  Supabase self-hosted:"
-	@echo "  make supabase-up       - levanta PG + Auth + PostgREST + Kong (espera healthy)"
-	@echo "  make supabase-psql     - psql contra el PG de Supabase (requiere DATABASE_URL)"
-	@echo "  make supabase-rls      - aplica RLS restrictivo (tras el primer arranque)"
-	@echo "  make supabase-storage-init - crea buckets + policy lectura pública"
+	@echo "  Stack (Kratos + PG externa + R2):"
+	@echo "  make up             - levanta Kratos (migra) + Go (espera healthy)"
+	@echo "  make psql           - psql contra la PG externa (requiere DATABASE_URL)"
 
 install-air:
 	@if [ ! -x "$(AIR)" ]; then \
@@ -40,22 +38,12 @@ build:
 run: build
 	./tmp/main
 
-# --- Supabase self-hosted ---
+# --- Stack: Kratos + PG externa ---
 
-supabase-up:
-	docker compose up -d --wait supabase-db supabase-auth supabase-rest supabase-kong
+up:
+	docker compose up -d --wait kratos app
 	docker compose ps
 
-supabase-psql:
+psql:
 	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL requerido" && exit 1)
 	psql "$(DATABASE_URL)"
-
-supabase-rls:
-	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL requerido" && exit 1)
-	@echo "Aplicando RLS restrictivo (deny-all PostgREST directo)..."
-	psql "$(DATABASE_URL)" -f supabase/rls.sql
-
-supabase-storage-init:
-	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL requerido" && exit 1)
-	@echo "Creando buckets + policy de lectura pública..."
-	psql "$(DATABASE_URL)" -f supabase/storage.sql

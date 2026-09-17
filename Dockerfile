@@ -30,8 +30,6 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY --from=builder /app/server ./server
 
-# Copy necessary runtime dirs (uploads, email OTP templates served at /templates)
-COPY --from=builder /app/supabase/templates ./supabase/templates
 RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
 
 USER appuser

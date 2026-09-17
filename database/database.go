@@ -32,9 +32,8 @@ func Connect() error {
 }
 
 // buildDSN resolves the Postgres DSN.
-// Precedence: DATABASE_URL (Fase 2: Supabase-managed PostgreSQL) takes
-// priority when set; otherwise the DB_HOST/DB_PORT/... parts are used.
-// Behavior without DATABASE_URL is byte-for-byte identical to before.
+// Precedence: DATABASE_URL takes priority when set; otherwise the
+// DB_HOST/DB_PORT/... parts are used.
 func buildDSN() (string, error) {
 	if url := os.Getenv("DATABASE_URL"); url != "" {
 		return url, nil

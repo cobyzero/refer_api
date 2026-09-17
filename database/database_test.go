@@ -57,7 +57,7 @@ func TestBuildDSN_DBParts(t *testing.T) {
 
 func TestBuildDSN_DatabaseURLWins(t *testing.T) {
 	withEnv(t, map[string]string{
-		"DATABASE_URL": "postgres://postgres:pw@supabase-db:5432/postgres?sslmode=disable",
+		"DATABASE_URL": "postgres://postgres:pw@pg-externa:5433/postgres?sslmode=disable",
 		"DB_USERNAME":  "postgres",
 		"DB_HOST":      "old-host",
 		"DB_NAME":      "refer",
@@ -66,7 +66,7 @@ func TestBuildDSN_DatabaseURLWins(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		want := "postgres://postgres:pw@supabase-db:5432/postgres?sslmode=disable"
+		want := "postgres://postgres:pw@pg-externa:5433/postgres?sslmode=disable"
 		if dsn != want {
 			t.Errorf("expected DATABASE_URL to win: %q, got %q", want, dsn)
 		}
