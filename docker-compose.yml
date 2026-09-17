@@ -28,7 +28,10 @@ services:
       # Init solo en primer arranque (volumen vacío): asigna password al rol
       # authenticator (PostgREST). Volúmenes ya inicializados: aplicar una vez
       # ALTER USER authenticator WITH PASSWORD '...' como supabase_admin.
-      - ./supabase/init:/docker-entrypoint-initdb.d:ro
+      # OJO: montaje POR ARCHIVO, nunca del directorio completo: montar el
+      # dir ocultaría el migrate.sh de la imagen (roles+schemas auth/storage
+      # jamás se crearían: 'role postgres does not exist').
+      - ./supabase/init/zz-role-passwords.sh:/docker-entrypoint-initdb.d/zz-role-passwords.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 10s

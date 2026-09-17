@@ -47,8 +47,10 @@ curl http://localhost:8000/auth/v1/health      # Auth    → {"name":"GoTrue",..
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/rest/v1/  # → 200
 ```
 
-> Primera vez: `supabase/init/01-role-passwords.sh` asigna password al rol
-> `authenticator` (PostgREST) automáticamente. Solo corre con volumen vacío.
+> Primera vez: `supabase/init/zz-role-passwords.sh` asigna password al rol
+> `authenticator` (PostgREST) automáticamente. Solo corre con volumen vacío,
+> al final del init (el prefijo `zz-` lo ordena después del `migrate.sh` de la
+> imagen, que crea roles y schemas; antes abortaba el init por orden).
 > Si el volumen ya existía sin ese password:
 > `docker exec -e PGPASSWORD=<pw> refer_supabase_db psql -U supabase_admin -d postgres -c "ALTER USER authenticator WITH PASSWORD '<pw>';"`
 > y reinicia `supabase-rest`.
