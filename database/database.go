@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"sync"
@@ -85,18 +86,35 @@ func connect() error {
 
 	DB = bun.NewDB(sqldb, pgdialect.New())
 
-	// Verify connectivity with a timeout context
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Verify connectivity (10s: la DB externa va por red pública, no socket local)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := DB.PingContext(ctx); err != nil {
 		_ = sqldb.Close()
-		return fmt.Errorf("failed to ping database: %w", err)
+		return fmt.Errorf("failed to ping database (%s): %w", safeDSNInfo(), err)
 	}
 
-	log.Printf("Database connection successfully established (pool: max_idle=%d, max_open=%d, max_lifetime=%ds)",
-		maxIdleConns, maxOpenConns, connMaxLifetime)
+	log.Printf("Database connection successfully established (%s) (pool: max_idle=%d, max_open=%d, max_lifetime=%ds)",
+		safeDSNInfo(), maxIdleConns, maxOpenConns, connMaxLifetime)
 	return nil
+}
+
+// safeDSNInfo devuelve host:port/db + user sin password para logs.
+func safeDSNInfo() string {
+	if raw := os.Getenv("DATABASE_URL"); raw != "" {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" {
+			user := ""
+			if u.User != nil {
+				user = u.User.Username()
+			}
+			return fmt.Sprintf("host=%s db=%s user=%s", u.Host, u.Path, user)
+		}
+		return "host=<DATABASE_URL> (unparseable)"
+	}
+	return fmt.Sprintf("host=%s:%s db=%s user=%s",
+		os.Getenv("DB_HOST"), os.Getenv("DB_PORT"),
+		os.Getenv("DB_NAME"), os.Getenv("DB_USERNAME"))
 }
 
 // Close gracefully closes the database connection.

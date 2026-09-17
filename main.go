@@ -40,6 +40,17 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	// DB externa supabase/postgres: verifica roles/schemas auth/storage o corta
+	// con mensaje explícito (evita PGRST000/3F000 crípticos después).
+	if err := database.CheckSupabaseDB(database.DB); err != nil {
+		log.Fatalf("Supabase DB check failed: %v", err)
+	}
+
+	// Buckets storage idempotentes (antes manual con make supabase-storage-init).
+	if err := database.EnsureStorage(database.DB); err != nil {
+		log.Fatalf("Failed to ensure storage buckets: %v", err)
+	}
+
 	// Initialize SocketGateway
 	socketGateway := gateway.InitSocketGateway()
 

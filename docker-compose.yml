@@ -1,60 +1,24 @@
 services:
   # ============================================================
-  # SUPABASE SELF-HOSTED (lean: PostgreSQL + Auth + PostgREST + Kong)
-  # Arquitectura: Flutter -> Go -> Kong (:8000) -> Auth/PostgREST -> PG.
-  # Flutter NUNCA habla con Supabase directo (solo Go vía Kong).
-  # El PG de Supabase es la DB principal (data desde cero, sin migraciones):
-  #   DB_HOST=supabase-db DB_PORT=5432 DB_NAME=postgres
-  #   DB_USERNAME=postgres DB_PASSWORD=${SUPABASE_POSTGRES_PASSWORD}
+  # SUPABASE SELF-HOSTED lean SIN db local (db externa supabase/postgres):
+  #   DB en 149.202.62.87:5433 (proyecto refer-db separado).
+  # Arquitectura: Flutter -> Go -> Kong (:8000) -> Auth/PostgREST -> PG externa.
+  # Este repo no crea ni persiste PG: el server la verifica y migra al arrancar
+  # (CheckSupabaseDB + Migrate + EnsureStorage), sin archivos en la DB.
+  # Vars externas: DB_HOST_EXTERNAL / DB_PORT_EXTERNAL / SUPABASE_POSTGRES_PASSWORD
+  # (idéntico al de refer-db, solo [A-Za-z0-9-], fijado una vez).
   # ============================================================
-
-  supabase-db:
-    image: supabase/postgres:15.8.1.060
-    container_name: refer_supabase_db
-    restart: unless-stopped
-    environment:
-      # Bootstrap explícito: el superusuario y la DB inicial se crean SOLO en
-      # el primer arranque (volumen vacío) con estos nombres. Sin esto, un
-      # POSTGRES_USER heredado del entorno habría creado el cluster con otro
-      # superusuario y todo (GoTrue, app) falla con 'role "postgres" does not
-      # exist'. En volúmenes ya inicializados no cambia nada.
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: ${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}
-    ports:
-      - "${SUPABASE_DB_EXTERNAL_PORT:-5433}:5432"
-    volumes:
-      - supabase_db_data:/var/lib/postgresql/data
-      # Init solo en primer arranque (volumen vacío): asigna password al rol
-      # authenticator (PostgREST). Volúmenes ya inicializados: aplicar una vez
-      # ALTER USER authenticator WITH PASSWORD '...' como supabase_admin.
-      # OJO: montaje POR ARCHIVO, nunca del directorio completo: montar el
-      # dir ocultaría el migrate.sh de la imagen (roles+schemas auth/storage
-      # jamás se crearían: 'role postgres does not exist').
-      - ./supabase/init/zz-role-passwords.sh:/docker-entrypoint-initdb.d/zz-role-passwords.sh:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks:
-      - refer_network
 
   supabase-auth:
     image: supabase/auth:v2.196.0
-    container_name: refer_supabase_auth
     restart: unless-stopped
-    depends_on:
-      supabase-db:
-        condition: service_healthy
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}/auth/v1
       GOTRUE_API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}/auth/v1
       GOTRUE_SITE_URL: ${SUPABASE_SITE_URL:-http://localhost:3000}
-      GOTRUE_DB_DATABASE_URL: postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-tu-password-alfanumerico-fijo}@${DB_HOST_EXTERNAL:-149.202.62.87}:${DB_PORT_EXTERNAL:-5433}/postgres?search_path=auth
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
       GOTRUE_JWT_EXP: ${GOTRUE_JWT_EXP:-3600}
@@ -90,13 +54,9 @@ services:
 
   supabase-rest:
     image: postgrest/postgrest:v12.2.0
-    container_name: refer_supabase_rest
     restart: unless-stopped
-    depends_on:
-      supabase-db:
-        condition: service_healthy
     environment:
-      PGRST_DB_URI: postgres://authenticator:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres
+      PGRST_DB_URI: postgres://authenticator:${SUPABASE_POSTGRES_PASSWORD:-tu-password-alfanumerico-fijo}@${DB_HOST_EXTERNAL:-149.202.62.87}:${DB_PORT_EXTERNAL:-5433}/postgres
       PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS:-public}
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
@@ -106,7 +66,6 @@ services:
 
   supabase-kong:
     image: kong:2.8.1
-    container_name: refer_supabase_kong
     restart: unless-stopped
     depends_on:
       supabase-auth:
@@ -131,18 +90,15 @@ services:
 
   supabase-storage:
     image: supabase/storage-api:v1.73.0
-    container_name: refer_supabase_storage
     restart: unless-stopped
     depends_on:
-      supabase-db:
-        condition: service_healthy
       supabase-rest:
         condition: service_started
     environment:
       PORT: 5000
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
-      DATABASE_URL: postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?search_path=storage,public
+      DATABASE_URL: postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-tu-password-alfanumerico-fijo}@${DB_HOST_EXTERNAL:-149.202.62.87}:${DB_PORT_EXTERNAL:-5433}/postgres?search_path=storage,public
       FILE_SIZE_LIMIT: ${SUPABASE_STORAGE_FILE_LIMIT:-52428800}
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
@@ -162,14 +118,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: refer_api
     restart: unless-stopped
-    # Orden de arranque: sin esto Go boottea antes que PG/Kong y el primer
-    # intento (migración + provisión del admin en Auth) falla con
-    # connection refused. Con healthy gates, el boot es limpio.
+    # Orden de arranque: Go espera a Kong (Auth ya debe estar healthy).
+    # La DB externa no tiene depends_on entre proyectos: restart + retries.
     depends_on:
-      supabase-db:
-        condition: service_healthy
       supabase-kong:
         condition: service_healthy
     ports:
@@ -181,12 +133,9 @@ services:
       DB_HOST: ${DB_HOST:-host.docker.internal}
       DB_PORT: ${DB_PORT:-5432}
       DB_SSLMODE: disable
-      # Dentro del compose, Go usa el PG de Supabase por red
-      # interna (tiene prioridad sobre DB_*). Para forzar otra DB,
-      # setea APP_DATABASE_URL explícito (ej. en el Environment de Dokploy).
-      # OJO: .env trae DATABASE_URL=localhost:... para `go run` local; este
-      # override manda dentro del container (environment: gana a env_file).
-      DATABASE_URL: ${APP_DATABASE_URL:-postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-supabase-dev-pg-pass-01}@supabase-db:5432/postgres?sslmode=disable}
+      # DB externa supabase/postgres (proyecto refer-db): tiene prioridad sobre DB_*.
+      # Default = IP externa acordada; override con APP_DATABASE_URL en Dokploy.
+      DATABASE_URL: ${APP_DATABASE_URL:-postgres://postgres:${SUPABASE_POSTGRES_PASSWORD:-tu-password-alfanumerico-fijo}@${DB_HOST_EXTERNAL:-149.202.62.87}:${DB_PORT_EXTERNAL:-5433}/postgres?sslmode=disable}
       # Supabase Auth: dentro del compose, Go habla con Kong
       # por red interna. `go run` local usa el SUPABASE_URL del .env
       # (http://localhost:8000). Override explícito: APP_SUPABASE_URL.
@@ -222,10 +171,6 @@ services:
             - "*.tmp"
 
 volumes:
-  # postgres_data:  # descomentar si usas postgres del compose
-  #   driver: local
-  supabase_db_data: # persistencia del PostgreSQL de Supabase (NO borrar sin backup)
-    driver: local
   supabase_storage_data: # archivos de Storage (NO borrar sin backup)
     driver: local
   uploads_data:
