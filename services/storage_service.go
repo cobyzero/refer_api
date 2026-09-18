@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
-
 // Buckets used by Refer App (R2 bucket names, created in the Cloudflare
 // dashboard with public access enabled).
 const (
@@ -32,6 +31,9 @@ type StorageService interface {
 	// Save stores data under bucket/filename and returns its public URL.
 	// baseURL is used only for the disk fallback (same format as before).
 	Save(bucket, filename string, data []byte, contentType, baseURL string) (string, error)
+	// Check verifies R2 reachability (HeadBucket on app buckets).
+	// Returns max latency in ms. Used by the /status page.
+	Check(ctx context.Context) (int64, error)
 }
 
 type storageService struct {
@@ -97,8 +99,29 @@ func (s *storageService) Save(bucket, filename string, data []byte, contentType,
 	return saveToDisk(filename, data, baseURL)
 }
 
-func (s *storageService) upload(bucket, filename string, data []byte, contentType string) (string, error) {
-	base := s.publicURL[bucket]
+// Check verifies R2 reachability with HeadBucket on the app buckets.
+// Returns the max latency in ms across buckets.
+func (s *storageService) Check(ctx context.Context) (int64, error) {
+	if !s.Enabled() {
+		return 0, fmt.Errorf("r2 not configured")
+	}
+	var maxMs int64
+	for _, bucket := range []string{BucketUploads, BucketProducts, BucketAvatars} {
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+		cancel()
+		if err != nil {
+			return 0, fmt.Errorf("bucket %s: %w", bucket, err)
+		}
+		if ms := time.Since(start).Milliseconds(); ms > maxMs {
+			maxMs = ms
+		}
+	}
+	return maxMs, nil
+}
+
+func (s *storageService) upload(bucket, filename string, data []byte, contentType string) (string, error) {	base := s.publicURL[bucket]
 	if base == "" {
 		// Re-read env so Dokploy changes apply without rebuild.
 		base = r2PublicURL(bucket)

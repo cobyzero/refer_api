@@ -164,6 +164,11 @@ func main() {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
+	// Public status page (no auth): services health like other status pages.
+	statusHandler := handlers.NewStatusHandler()
+	app.Get("/status", statusHandler.Page)
+	app.Get("/status.json", statusHandler.JSON)
+
 	// Route Socket.io requests using adaptor
 	app.All("/socket.io/*", adaptor.HTTPHandler(socketGateway.GetServer().ServeHandler(nil)))
 

@@ -47,6 +47,10 @@ curl http://localhost:3001/health              # Go      → {"status":"ok"}
 curl http://localhost:4434/health/ready        # Kratos  → {"status":"ok"}
 ```
 
+Página de estado pública (estilo status-page, auto-refresh 15s + feed JSON):
+`GET /status` (vista HTML) y `GET /status.json` → `{status, services:[api,
+database, kratos_public, kratos_admin, r2]}` con `up/down/disabled` + latencia.
+
 ## 2. Variables de entorno
 
 `.env` (gitignored, nunca commitear). Copia de `.env.example`:
